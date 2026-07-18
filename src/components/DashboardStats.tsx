@@ -1,0 +1,154 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React from "react";
+import { motion } from "motion/react";
+import { Wallet, LineChart, Shield, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { BankData, InvestmentData } from "../types";
+
+interface DashboardStatsProps {
+  expenses: BankData;
+  investments: InvestmentData;
+}
+
+export const DashboardStats: React.FC<DashboardStatsProps> = ({
+  expenses,
+  investments,
+}) => {
+  // 1. Calculate running balances to find the current balance of each bank
+  const getBankBalance = (transactions: any[]) => {
+    if (!transactions || transactions.length === 0) return 0;
+    // Sort by date ascending to compute accurate running balance
+    const sorted = [...transactions].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+    let balance = 0;
+    for (const tx of sorted) {
+      balance += (tx.credit || 0) - (tx.cost || 0);
+    }
+    return balance;
+  };
+
+  const hdfcBal = getBankBalance(expenses.HDFC);
+  const iobBal = getBankBalance(expenses.IOB);
+  const canaraBal = getBankBalance(expenses.Canara);
+  const totalBankBalance = hdfcBal + iobBal + canaraBal;
+
+  // 2. Calculate investment values
+  // Stocks: Investment cost = Sum(Qty * Price), Current Value = Sum(Qty * CurrentPrice)
+  let stocksCost = 0;
+  let stocksCurrent = 0;
+  investments.Stocks.forEach((st) => {
+    stocksCost += (st.qty || 0) * (st.price || 0);
+    stocksCurrent += (st.qty || 0) * (st.currentPrice || 0);
+  });
+
+  // SIP: Investment cost = Sum(Amount), Current Value = Sum(CurrentValue)
+  let sipCost = 0;
+  let sipCurrent = 0;
+  investments.SIP.forEach((sip) => {
+    sipCost += sip.amount || 0;
+    sipCurrent += sip.currentValue || 0;
+  });
+
+  // GoldSilver: Investment cost = Sum(Qty * Price), Current Value = Sum(Qty * CurrentPrice)
+  let metalsCost = 0;
+  let metalsCurrent = 0;
+  investments.GoldSilver.forEach((gs) => {
+    metalsCost += (gs.qty || 0) * (gs.price || 0);
+    metalsCurrent += (gs.qty || 0) * (gs.currentPrice || 0);
+  });
+
+  const totalInvestedCost = stocksCost + sipCost + metalsCost;
+  const totalInvestedCurrent = stocksCurrent + sipCurrent + metalsCurrent;
+  const totalInvestmentGain = totalInvestedCurrent - totalInvestedCost;
+  const investmentGainPercent =
+    totalInvestedCost > 0 ? (totalInvestmentGain / totalInvestedCost) * 100 : 0;
+
+  // 3. Aggregate Net Worth
+  const totalNetWorth = totalBankBalance + totalInvestedCurrent;
+
+  // Format currency in Indian Rupees style (or clean generic format)
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 0,
+    }).format(value);
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 max-w-7xl mx-auto" id="dashboard-stats-grid">
+      {/* Total Bank Balance Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, delay: 0.05 }}
+        className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between hover:shadow transition-all relative overflow-hidden group"
+        id="bank-balance-card"
+      >
+        <div>
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest font-sans">
+            Total Bank Balance
+          </p>
+          <h2 className="text-3xl font-bold font-display tracking-tight text-slate-800 mt-2">
+            {formatCurrency(totalBankBalance)}
+          </h2>
+        </div>
+        <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between text-[11px] text-slate-500 font-mono">
+          <span>HDFC: {formatCurrency(hdfcBal)}</span>
+          <span>IOB: {formatCurrency(iobBal)}</span>
+          <span>Canara: {formatCurrency(canaraBal)}</span>
+        </div>
+      </motion.div>
+
+      {/* Total Invested Value Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, delay: 0.1 }}
+        className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between hover:shadow transition-all relative"
+        id="investment-value-card"
+      >
+        <div>
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest font-sans">
+            Invested Value
+          </p>
+          <h2 className="text-3xl font-bold font-display tracking-tight text-emerald-600 mt-2">
+            {formatCurrency(totalInvestedCurrent)}
+          </h2>
+        </div>
+        <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center text-[11px] text-slate-500 font-mono">
+          <span>Cost: {formatCurrency(totalInvestedCost)}</span>
+          <span className={`font-bold px-2 py-0.5 rounded-full ${totalInvestmentGain >= 0 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+            {totalInvestmentGain >= 0 ? "+" : ""}{investmentGainPercent.toFixed(1)}%
+          </span>
+        </div>
+      </motion.div>
+
+      {/* Aggregate Net Worth Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, delay: 0.15 }}
+        className="bg-indigo-900 p-5 rounded-xl shadow-md flex flex-col justify-between hover:shadow-lg transition-all text-white relative"
+        id="net-worth-card"
+      >
+        <div>
+          <p className="text-[11px] font-bold text-indigo-200 uppercase tracking-widest font-sans">
+            Aggregate Net Worth
+          </p>
+          <h2 className="text-3xl font-bold font-display tracking-tight text-white mt-2">
+            {formatCurrency(totalNetWorth)}
+          </h2>
+        </div>
+        <div className="mt-4 pt-3 border-t border-indigo-800/60 flex justify-between text-[11px] text-indigo-200 font-medium">
+          <span>Liquidity + Wealth assets</span>
+          <span className="text-amber-300 font-mono font-semibold">Stable Growth</span>
+        </div>
+      </motion.div>
+    </div>
+  );
+};

@@ -1,0 +1,6 @@
+{
+  "name": "Personal Finance Sync Dashboard",
+  "description": "A personal finance single-page application that syncs dynamically with a Google Apps Script Web App URL endpoint.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
