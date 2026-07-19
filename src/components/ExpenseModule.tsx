@@ -59,20 +59,31 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
 const getTransactionsWithBalance = (bankName: BankName): Transaction[] => {
     const list = expenses[bankName] || [];
     
-    // We trust the spreadsheet's natural row order!
-    return list.map((tx) => {
-      // FORCE the app to use the sheet's balance if it exists
-      // We check for !== undefined so that 0 is still handled correctly if needed
-      if (tx.balance !== undefined) {
+    // 1. First, sort chronologically (oldest first) so the mathematical chain links row-by-row correctly
+    const chronologicalList = [...list].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+
+    let runningBal = 0;
+    const computedList = chronologicalList.map((tx) => {
+      // Rule A: If the row already contains a pre-saved balance from your Excel sheet, use it
+      if (tx.balance !== undefined && tx.balance !== 0) {
+        runningBal = tx.balance;
         return tx;
       }
       
-      // Fallback only if it's a completely new unsynced manual entry
+      // Rule B: For newly added rows, execute your exact formula: Prev + Credit - Cost
+      runningBal = runningBal + (tx.credit || 0) - (tx.cost || 0);
       return {
         ...tx,
-        balance: (tx.credit || 0) - (tx.cost || 0)
+        balance: runningBal
       };
     });
+
+    // 2. Return the list in the descending view order your UI layout likes, with the math intact
+    return computedList.sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
   };
   const currentBankTransactions = getTransactionsWithBalance(selectedBank);
   // Sort descending for display so the newest transactions are visible first
