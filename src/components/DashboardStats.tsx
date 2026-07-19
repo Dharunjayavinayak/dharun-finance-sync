@@ -5,7 +5,6 @@
 
 import React from "react";
 import { motion } from "motion/react";
-import { Wallet, LineChart, Shield, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { BankData, InvestmentData } from "../types";
 
 interface DashboardStatsProps {
@@ -17,18 +16,14 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
   expenses,
   investments,
 }) => {
-  // 1. Calculate running balances to find the current balance of each bank
+  // 1. Get the current actual balance of each bank from the latest entry
   const getBankBalance = (transactions: any[]) => {
     if (!transactions || transactions.length === 0) return 0;
-    // Sort by date ascending to compute accurate running balance
-    const sorted = [...transactions].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
-    let balance = 0;
-    for (const tx of sorted) {
-      balance += (tx.credit || 0) - (tx.cost || 0);
-    }
-    return balance;
+    
+    // The transactions array is already in historical sheet order (oldest first).
+    // The LAST element has the most up-to-date final balance column statement!
+    const latestTx = transactions[transactions.length - 1];
+    return latestTx.balance !== undefined ? latestTx.balance : 0;
   };
 
   const hdfcBal = getBankBalance(expenses.HDFC);
@@ -36,41 +31,31 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
   const canaraBal = getBankBalance(expenses.Canara);
   const totalBankBalance = hdfcBal + iobBal + canaraBal;
 
-  // 2. Calculate investment values
-  // Stocks: Investment cost = Sum(Qty * Price), Current Value = Sum(Qty * CurrentPrice)
+  // 2. Calculate investment values strictly matching your Excel 'Amount' layout
   let stocksCost = 0;
-  let stocksCurrent = 0;
   investments.Stocks.forEach((st) => {
+    // Aggregates Qty * Price directly
     stocksCost += (st.qty || 0) * (st.price || 0);
-    stocksCurrent += (st.qty || 0) * (st.currentPrice || 0);
   });
 
-  // SIP: Investment cost = Sum(Amount), Current Value = Sum(CurrentValue)
   let sipCost = 0;
-  let sipCurrent = 0;
   investments.SIP.forEach((sip) => {
+    // Aggregates standard amount column
     sipCost += sip.amount || 0;
-    sipCurrent += sip.currentValue || 0;
   });
 
-  // GoldSilver: Investment cost = Sum(Qty * Price), Current Value = Sum(Qty * CurrentPrice)
   let metalsCost = 0;
-  let metalsCurrent = 0;
   investments.GoldSilver.forEach((gs) => {
-    metalsCost += (gs.qty || 0) * (gs.price || 0);
-    metalsCurrent += (gs.qty || 0) * (gs.currentPrice || 0);
+    // If your sheet provides the pre-computed amount column, use it, otherwise fall back to Qty * Price
+    metalsCost += gs.amount || ((gs.qty || 0) * (gs.price || 0));
   });
 
   const totalInvestedCost = stocksCost + sipCost + metalsCost;
-  const totalInvestedCurrent = stocksCurrent + sipCurrent + metalsCurrent;
-  const totalInvestmentGain = totalInvestedCurrent - totalInvestedCost;
-  const investmentGainPercent =
-    totalInvestedCost > 0 ? (totalInvestmentGain / totalInvestedCost) * 100 : 0;
 
   // 3. Aggregate Net Worth
-  const totalNetWorth = totalBankBalance + totalInvestedCurrent;
+  const totalNetWorth = totalBankBalance + totalInvestedCost;
 
-  // Format currency in Indian Rupees style (or clean generic format)
+  // Format currency in Indian Rupees style
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("en-IN", {
       style: "currency",
@@ -104,7 +89,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
         </div>
       </motion.div>
 
-      {/* Total Invested Value Card */}
+      {/* Total Invested Value Card (Cleaned to show exact cost from sheet) */}
       <motion.div
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
@@ -114,16 +99,16 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
       >
         <div>
           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest font-sans">
-            Invested Value
+            Total Invested Value
           </p>
           <h2 className="text-3xl font-bold font-display tracking-tight text-emerald-600 mt-2">
-            {formatCurrency(totalInvestedCurrent)}
+            {formatCurrency(totalInvestedCost)}
           </h2>
         </div>
         <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center text-[11px] text-slate-500 font-mono">
-          <span>Cost: {formatCurrency(totalInvestedCost)}</span>
-          <span className={`font-bold px-2 py-0.5 rounded-full ${totalInvestmentGain >= 0 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
-            {totalInvestmentGain >= 0 ? "+" : ""}{investmentGainPercent.toFixed(1)}%
+          <span>Portfolio Assets</span>
+          <span className="font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700支">
+            Synced
           </span>
         </div>
       </motion.div>
