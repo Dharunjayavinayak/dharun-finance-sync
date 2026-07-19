@@ -55,22 +55,32 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
   ];
 
   // Recalculate transaction list with running balance
-  const getTransactionsWithBalance = (bankName: BankName): Transaction[] => {
-    const list = expenses[bankName] || [];
-    // Sort chronologically ascending to calculate running balance
-    const sorted = [...list].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
+  // Replace this function inside ExpenseModule.tsx
+const getTransactionsWithBalance = (bankName: BankName): Transaction[] => {
+  const list = expenses[bankName] || [];
+  
+  // Sort chronologically ascending to follow your spreadsheet flow
+  const sorted = [...list].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+  );
 
-    let runningBal = 0;
-    return sorted.map((tx) => {
-      runningBal += (tx.credit || 0) - (tx.cost || 0);
-      return {
-        ...tx,
-        balance: runningBal,
-      };
-    });
-  };
+  // FIX: If the sheet sent us a calculated balance value, use it! 
+  // Otherwise, fallback to computing it from 0 if it's a completely new manual entry.
+  let runningBal = 0;
+  return sorted.map((tx) => {
+    if (tx.balance !== undefined && tx.balance !== 0) {
+      runningBal = tx.balance;
+      return tx;
+    }
+    
+    // Fallback logic for newly added entries in the session
+    runningBal += (tx.credit || 0) - (tx.cost || 0);
+    return {
+      ...tx,
+      balance: runningBal,
+    };
+  });
+};
 
   const currentBankTransactions = getTransactionsWithBalance(selectedBank);
   // Sort descending for display so the newest transactions are visible first
