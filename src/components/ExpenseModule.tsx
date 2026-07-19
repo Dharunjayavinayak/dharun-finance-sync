@@ -60,22 +60,20 @@ const getTransactionsWithBalance = (bankName: BankName): Transaction[] => {
     const list = expenses[bankName] || [];
     
     // We trust the spreadsheet's natural row order!
-    // Simply map through the list to preserve the spreadsheet balances
-    let runningBal = 0;
     return list.map((tx) => {
-      if (tx.balance !== undefined && tx.balance !== 0) {
-        runningBal = tx.balance;
+      // FORCE the app to use the sheet's balance if it exists
+      // We check for !== undefined so that 0 is still handled correctly if needed
+      if (tx.balance !== undefined) {
         return tx;
       }
       
-      runningBal += (tx.credit || 0) - (tx.cost || 0);
+      // Fallback only if it's a completely new unsynced manual entry
       return {
         ...tx,
-        balance: runningBal,
+        balance: (tx.credit || 0) - (tx.cost || 0)
       };
     });
   };
-
   const currentBankTransactions = getTransactionsWithBalance(selectedBank);
   // Sort descending for display so the newest transactions are visible first
   const displayTransactions = [...currentBankTransactions].reverse();
