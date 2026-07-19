@@ -16,13 +16,11 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
   expenses,
   investments,
 }) => {
-  // 1. Get the current actual balance of each bank from the latest entry
+  // FIX: Look at the FIRST transaction element index [0] because the web application 
+  // sorts arrays in reverse order (newest entry with the latest balance is at index 0).
   const getBankBalance = (transactions: any[]) => {
     if (!transactions || transactions.length === 0) return 0;
-    
-    // The transactions array is already in historical sheet order (oldest first).
-    // The LAST element has the most up-to-date final balance column statement!
-    const latestTx = transactions[transactions.length - 1];
+    const latestTx = transactions[0]; 
     return latestTx.balance !== undefined ? latestTx.balance : 0;
   };
 
@@ -31,31 +29,25 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
   const canaraBal = getBankBalance(expenses.Canara);
   const totalBankBalance = hdfcBal + iobBal + canaraBal;
 
-  // 2. Calculate investment values strictly matching your Excel 'Amount' layout
+  // Calculate investment costs dynamically matching your Excel totals
   let stocksCost = 0;
-  investments.Stocks.forEach((st) => {
-    // Aggregates Qty * Price directly
+  (investments.Stocks || []).forEach((st) => {
     stocksCost += (st.qty || 0) * (st.price || 0);
   });
 
   let sipCost = 0;
-  investments.SIP.forEach((sip) => {
-    // Aggregates standard amount column
+  (investments.SIP || []).forEach((sip) => {
     sipCost += sip.amount || 0;
   });
 
   let metalsCost = 0;
-  investments.GoldSilver.forEach((gs) => {
-    // If your sheet provides the pre-computed amount column, use it, otherwise fall back to Qty * Price
+  (investments.GoldSilver || []).forEach((gs) => {
     metalsCost += gs.amount || ((gs.qty || 0) * (gs.price || 0));
   });
 
   const totalInvestedCost = stocksCost + sipCost + metalsCost;
-
-  // 3. Aggregate Net Worth
   const totalNetWorth = totalBankBalance + totalInvestedCost;
 
-  // Format currency in Indian Rupees style
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("en-IN", {
       style: "currency",
@@ -89,7 +81,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
         </div>
       </motion.div>
 
-      {/* Total Invested Value Card (Cleaned to show exact cost from sheet) */}
+      {/* Total Invested Value Card */}
       <motion.div
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
@@ -107,7 +99,7 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
         </div>
         <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center text-[11px] text-slate-500 font-mono">
           <span>Portfolio Assets</span>
-          <span className="font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700支">
+          <span className="font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
             Synced
           </span>
         </div>
