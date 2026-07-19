@@ -33,7 +33,6 @@ export default function App() {
 
   const [activeModule, setActiveModule] = useState<"expenses" | "portfolio">("expenses");
   const [scriptUrl, setScriptUrl] = useState<string>(() => {
-    // Let user override the hardcoded APPS_SCRIPT_URL in the UI, saved to localStorage
     const savedUrl = localStorage.getItem("finsync_script_url");
     if (savedUrl && savedUrl !== "YOUR_DEPLOYED_WEB_APP_URL") {
       return savedUrl;
@@ -56,7 +55,6 @@ export default function App() {
   // Handle setting endpoint from UI Settings
   const handleUrlChange = (newUrl: string) => {
     setScriptUrl(newUrl);
-    // After setting a new URL, trigger sync automatically
     if (newUrl && newUrl !== "YOUR_DEPLOYED_WEB_APP_URL") {
       triggerSync(newUrl);
     }
@@ -88,7 +86,6 @@ export default function App() {
       }
       const data = await response.json();
 
-      // Deep, robust parsing to prevent bad/missing sheets crashing the state
       const nowStr = new Date().toLocaleString("en-IN", {
         year: "numeric",
         month: "2-digit",
@@ -114,6 +111,7 @@ export default function App() {
                 reason: tx.reason || "Unspecified record",
                 credit: parseFloat(tx.credit) || 0,
                 cost: parseFloat(tx.cost) || 0,
+                balance: parseFloat(tx.balance) || 0,
               }));
               nextState.bankSyncTimes[bank] = nowStr;
             }
@@ -129,9 +127,11 @@ export default function App() {
             nextState.investments.Stocks = fetchedInv.Stocks.map((st: any, idx: number) => ({
               id: st.id || `stock-fetched-${idx}`,
               date: st.date || new Date().toISOString().split("T")[0],
+              group: st.group || "General", // <-- CRUCIAL FIX: Read the Group column!
               name: st.name || "STOCK",
               qty: parseFloat(st.qty) || 0,
               price: parseFloat(st.price) || 0,
+              amount: parseFloat(st.amount) || 0,
               currentPrice: parseFloat(st.currentPrice || st.price) || 0,
             }));
             nextState.assetSyncTimes.Stocks = nowStr;
@@ -142,6 +142,7 @@ export default function App() {
             nextState.investments.SIP = fetchedInv.SIP.map((sip: any, idx: number) => ({
               id: sip.id || `sip-fetched-${idx}`,
               date: sip.date || new Date().toISOString().split("T")[0],
+              group: sip.group || "Mutual Fund", // <-- CRUCIAL FIX: Read the Group column!
               name: sip.name || "Mutual Fund",
               amount: parseFloat(sip.amount) || 0,
               currentValue: parseFloat(sip.currentValue || sip.amount) || 0,
@@ -154,9 +155,11 @@ export default function App() {
             nextState.investments.GoldSilver = fetchedInv.GoldSilver.map((gs: any, idx: number) => ({
               id: gs.id || `gs-fetched-${idx}`,
               date: gs.date || new Date().toISOString().split("T")[0],
+              group: gs.group || "Metal", // <-- CRUCIAL FIX: Read the Group column!
               name: gs.name || "Metal Asset",
               qty: parseFloat(gs.qty) || 0,
               price: parseFloat(gs.price) || 0,
+              amount: parseFloat(gs.amount) || 0,
               currentPrice: parseFloat(gs.currentPrice || gs.price) || 0,
             }));
             nextState.assetSyncTimes.GoldSilver = nowStr;
@@ -168,7 +171,6 @@ export default function App() {
       });
 
       setSyncStatus("success");
-      // Clear success notification after 5 seconds
       setTimeout(() => {
         setSyncStatus("idle");
       }, 5000);
@@ -176,7 +178,7 @@ export default function App() {
     } catch (error: any) {
       console.error("Fetch synchronization failed", error);
       setSyncStatus("error");
-      setSyncError(error.message || "Network error. Please check CORS configs or script visibility.");
+      setSyncError(error.message || "Network error.");
     }
   };
 
@@ -184,19 +186,18 @@ export default function App() {
   const sendActionToApi = async (payload: any) => {
     const isConfigured = scriptUrl && scriptUrl !== "YOUR_DEPLOYED_WEB_APP_URL" && scriptUrl.trim() !== "";
     if (!isConfigured) {
-      console.log("No deployed Web App connected. Change saved strictly to local cache.");
+      console.log("No deployed Web App connected. Change saved locally.");
       return;
     }
 
     try {
-      // Set to syncing state for immediate feedback
       setSyncStatus("syncing");
       setSyncError(null);
 
       const response = await fetch(scriptUrl, {
         method: "POST",
         headers: {
-          "Content-Type": "text/plain;charset=utf-8", // Crucial bypass for CORS pre-flight
+          "Content-Type": "text/plain;charset=utf-8",
         },
         body: JSON.stringify(payload),
       });
@@ -205,15 +206,12 @@ export default function App() {
         throw new Error(`POST action failed: ${response.statusText}`);
       }
 
-      const resJson = await response.json();
-      console.log("Action synchronized successfully", resJson);
-
-      // Re-trigger global sync to make sure state reflects sheet calculations perfectly
+      await response.json();
       await triggerSync(scriptUrl);
     } catch (err: any) {
       console.error("Action API synchronization failed", err);
       setSyncStatus("error");
-      setSyncError(`Action Sync Failed: ${err.message}. Your local copy is saved.`);
+      setSyncError(`Action Sync Failed: ${err.message}.`);
     }
   };
 
@@ -224,19 +222,14 @@ export default function App() {
       id: `${bank.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
     };
 
-    // Update state locally first (Optimistic response)
     setState((prev) => {
       const updatedList = [...prev.expenses[bank], newTx];
       return {
         ...prev,
-        expenses: {
-          ...prev.expenses,
-          [bank]: updatedList,
-        },
+        expenses: { ...prev.expenses, [bank]: updatedList },
       };
     });
 
-    // Send payload asynchronously
     sendActionToApi({
       action: "add",
       sheetName: bank,
@@ -249,19 +242,14 @@ export default function App() {
   };
 
   const handleDeleteTransaction = (bank: BankName, tx: Transaction) => {
-    // Update state locally first
     setState((prev) => {
       const filtered = prev.expenses[bank].filter((item) => item.id !== tx.id);
       return {
         ...prev,
-        expenses: {
-          ...prev.expenses,
-          [bank]: filtered,
-        },
+        expenses: { ...prev.expenses, [bank]: filtered },
       };
     });
 
-    // Send payload asynchronously
     sendActionToApi({
       action: "delete",
       sheetName: bank,
@@ -275,23 +263,19 @@ export default function App() {
     const newId = `${assetClass.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`;
     const newAsset = { ...asset, id: newId };
 
-    // Update state locally
     setState((prev) => {
       const list = prev.investments[assetClass] || [];
       return {
         ...prev,
-        investments: {
-          ...prev.investments,
-          [assetClass]: [...list, newAsset],
-        },
+        investments: { ...prev.investments, [assetClass]: [...list, newAsset] },
       };
     });
 
-    // Send payload asynchronously
     const addPayload: any = {
       action: "add",
       sheetName: assetClass,
       date: newAsset.date,
+      group: newAsset.group,
       name: newAsset.name,
     };
 
@@ -308,21 +292,15 @@ export default function App() {
   };
 
   const handleDeleteAsset = (assetClass: AssetClass, asset: { date: string; name: string }) => {
-    // Update state locally first
     setState((prev) => {
       const list = prev.investments[assetClass] || [];
-      // Remove matching asset from local array
       const filtered = list.filter((item: any) => !(item.date === asset.date && item.name === asset.name));
       return {
         ...prev,
-        investments: {
-          ...prev.investments,
-          [assetClass]: filtered,
-        },
+        investments: { ...prev.investments, [assetClass]: filtered },
       };
     });
 
-    // Send payload asynchronously
     sendActionToApi({
       action: "delete",
       sheetName: assetClass,
@@ -334,7 +312,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50/70 text-slate-800 font-sans antialiased" id="main-scroller">
       <div className="max-w-7xl mx-auto px-4 py-8 md:px-6">
-        {/* Module 1: Universal Header & Setup Drawer */}
         <AppHeader
           globalSyncTime={state.globalSyncTime}
           appsScriptUrl={scriptUrl}
@@ -342,21 +319,17 @@ export default function App() {
           onSync={() => triggerSync(scriptUrl)}
           syncStatus={syncStatus}
           syncError={syncError}
-        />
+      />
 
-        {/* Dashboard Unified Financial State Cards */}
         <DashboardStats expenses={state.expenses} investments={state.investments} />
 
-        {/* Dynamic Centered Navigation Action Panel */}
         <div className="flex justify-center mb-8" id="navigation-bar">
           <div className="bg-slate-100 p-1 rounded-lg inline-flex items-center space-x-1 shadow-xs border border-slate-200/50">
             <button
               id="nav-expenses-btn"
               onClick={() => setActiveModule("expenses")}
               className={`flex items-center space-x-2 px-5 py-2 rounded-md text-sm font-semibold transition-all cursor-pointer ${
-                activeModule === "expenses"
-                  ? "bg-white text-indigo-600 shadow-xs"
-                  : "text-slate-600 hover:text-slate-800"
+                activeModule === "expenses" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600 hover:text-slate-800"
               }`}
             >
               <Wallet size={15} />
@@ -366,9 +339,7 @@ export default function App() {
               id="nav-portfolio-btn"
               onClick={() => setActiveModule("portfolio")}
               className={`flex items-center space-x-2 px-5 py-2 rounded-md text-sm font-semibold transition-all cursor-pointer ${
-                activeModule === "portfolio"
-                  ? "bg-white text-indigo-600 shadow-xs"
-                  : "text-slate-600 hover:text-slate-800"
+                activeModule === "portfolio" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600 hover:text-slate-800"
               }`}
             >
               <LineChart size={15} />
@@ -377,7 +348,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Primary Content View Area */}
         <main className="transition-all duration-300" id="primary-view-container">
           {activeModule === "expenses" ? (
             <ExpenseModule
@@ -389,7 +359,7 @@ export default function App() {
           ) : (
             <InvestmentModule
               investments={state.investments}
-              syncTimes={state.assetSyncTimes}
+              syncTime={state.globalSyncTime}
               onAddAsset={handleAddAsset}
               onDeleteAsset={handleDeleteAsset}
             />
