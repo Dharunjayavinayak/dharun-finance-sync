@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Trash2, Plus, Calendar, FileText, IndianRupee, Layers } from "lucide-react";
+import { Trash2, Plus, Calendar, FileText, IndianRupee, Layers, Tag } from "lucide-react";
 import { InvestmentData, InvestmentType, InvestmentItem } from "../types";
 
 interface InvestmentModuleProps {
@@ -17,6 +17,9 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
   onDeleteAsset,
 }) => {
   const [selectedTab, setSelectedTab] = useState<InvestmentType>("Stocks");
+  
+  // NEW Enhancement: Range/Limit state (defaults to last 5 entries)
+  const [viewLimit, setViewLimit] = useState<5 | 20 | "all">(5);
 
   // Form states
   const [targetTab, setTargetTab] = useState<InvestmentType>("Stocks");
@@ -31,10 +34,18 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
   const tabs: InvestmentType[] = ["Stocks", "SIP", "GoldSilver"];
   const currentItems = investments[selectedTab] || [];
   
-  // Sort descending for display so the newest entry is visible first
-  const displayItems = [...currentItems].sort((a, b) => {
+  // Collect existing group and asset name entries dynamically from sheet arrays
+  const dynamicGroups = Array.from(new Set(currentItems.map(item => item.group).filter(Boolean)));
+  const dynamicNames = Array.from(new Set(currentItems.map(item => item.name).filter(Boolean)));
+
+  const chronologicalReversed = [...currentItems].sort((a, b) => {
     return new Date(b.date).getTime() - new Date(a.date).getTime();
   });
+
+  // NEW Enhancement: Apply view range limitations
+  const displayItems = viewLimit === "all" 
+    ? chronologicalReversed 
+    : chronologicalReversed.slice(0, viewLimit);
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -117,10 +128,32 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-8 order-2 lg:order-1 flex flex-col min-h-[400px]">
-          <div className="flex items-center justify-between mb-4">
+          
+          {/* NEW Enhancement: View Range Controls Toolbar */}
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-              Asset Allocation Ledger ({displayItems.length} entries)
+              Ledger ({displayItems.length} shown of {chronologicalReversed.length})
             </h3>
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-md border border-slate-200 text-[11px] font-semibold">
+              <button 
+                onClick={() => setViewLimit(5)} 
+                className={`px-2 py-1 rounded transition-all cursor-pointer ${viewLimit === 5 ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600"}`}
+              >
+                Last 5
+              </button>
+              <button 
+                onClick={() => setViewLimit(20)} 
+                className={`px-2 py-1 rounded transition-all cursor-pointer ${viewLimit === 20 ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600"}`}
+              >
+                Last 20
+              </button>
+              <button 
+                onClick={() => setViewLimit("all")} 
+                className={`px-2 py-1 rounded transition-all cursor-pointer ${viewLimit === "all" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600"}`}
+              >
+                All Time
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-50/20 flex-1">
@@ -200,18 +233,26 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
                 </div>
               </div>
 
+              {/* Enhanced Combobox Input: Sector / Group */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">Sector / Group</label>
                 <div className="relative">
-                  <input type="text" placeholder="e.g. Automobile, Mid cap" value={group} onChange={(e) => setGroup(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none" />
+                  <input type="text" list="inv-group-suggestions" placeholder="Type or select..." value={group} onChange={(e) => setGroup(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none" />
+                  <datalist id="inv-group-suggestions">
+                    {dynamicGroups.map(grp => <option key={grp} value={grp} />)}
+                  </datalist>
                   <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400"><Layers size={14} /></div>
                 </div>
               </div>
 
+              {/* Enhanced Combobox Input: Asset Name */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">Asset Name</label>
                 <div className="relative">
-                  <input type="text" placeholder="e.g. Tata Motors" value={name} onChange={(e) => setName(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none" />
+                  <input type="text" list="inv-name-suggestions" placeholder="e.g. Tata Motors" value={name} onChange={(e) => setName(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none" />
+                  <datalist id="inv-name-suggestions">
+                    {dynamicNames.map(nm => <option key={nm} value={nm} />)}
+                  </datalist>
                   <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400"><FileText size={14} /></div>
                 </div>
               </div>
@@ -238,7 +279,6 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
               )}
 
               {formError && <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 p-2 rounded">{formError}</div>}
-
               <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-md text-xs transition-colors cursor-pointer flex items-center justify-center">
                 <Plus size={14} className="mr-1" /> Add Asset Record
               </button>
