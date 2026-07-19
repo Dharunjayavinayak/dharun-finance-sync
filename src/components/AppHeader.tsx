@@ -41,8 +41,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-col md:flex-row md:items-center gap-4">
           <h1 className="text-xl font-bold tracking-tight text-slate-800 font-sans">
-            FINANCE<span className="text-indigo-600">SYNC</span>
-            <span className="text-xs font-light text-slate-400 ml-1">PRO</span>
+            Dharun<span className="text-indigo-600">Finance</span>
+            <span className="text-xs font-light text-slate-400 ml-1">sync</span>
           </h1>
           
           {/* Apps Script Endpoint Badge */}
