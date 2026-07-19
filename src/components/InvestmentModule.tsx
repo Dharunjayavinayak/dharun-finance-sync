@@ -17,7 +17,6 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
   onDeleteAsset,
 }) => {
   const [selectedTab, setSelectedTab] = useState<InvestmentType>("Stocks");
-  const [isAdding, setIsAdding] = useState(false);
 
   // Form states
   const [targetTab, setTargetTab] = useState<InvestmentType>("Stocks");
@@ -32,7 +31,7 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
   const tabs: InvestmentType[] = ["Stocks", "SIP", "GoldSilver"];
   const currentItems = investments[selectedTab] || [];
   
-  // Clean chronological sort engine ensuring string dates are read natively
+  // Sort descending for display so the newest entry is visible first
   const displayItems = [...currentItems].sort((a, b) => {
     return new Date(b.date).getTime() - new Date(a.date).getTime();
   });
@@ -76,7 +75,6 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
     setPrice("");
     setQty("");
     setAmount("");
-    setIsAdding(false);
   };
 
   const formatCurrency = (val: number) => {
@@ -150,7 +148,7 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
                         <td className="py-3 px-4 font-mono text-slate-500 whitespace-nowrap">{item.date}</td>
                         <td className="py-3 px-4">
                           <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200/50">
-                            {item.group || "Asset"}
+                            {item.group || "—"}
                           </span>
                         </td>
                         <td className="py-3 px-4 font-medium text-slate-800">{item.name}</td>
