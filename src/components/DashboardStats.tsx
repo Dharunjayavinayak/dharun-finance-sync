@@ -16,12 +16,12 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
   expenses,
   investments,
 }) => {
-  // FIX: Look at the FIRST transaction element index [0] because the web application 
-  // sorts arrays in reverse order (newest entry with the latest balance is at index 0).
+  // FIX: Look at the LAST transaction element of the array because the raw incoming 
+  // sheet lists entries from oldest to newest (the final item has your current running balance).
   const getBankBalance = (transactions: any[]) => {
     if (!transactions || transactions.length === 0) return 0;
-    const latestTx = transactions[0]; 
-    return latestTx.balance !== undefined ? latestTx.balance : 0;
+    const latestTx = transactions[transactions.length - 1]; 
+    return latestTx && latestTx.balance !== undefined ? latestTx.balance : 0;
   };
 
   const hdfcBal = getBankBalance(expenses.HDFC);
