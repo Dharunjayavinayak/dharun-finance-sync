@@ -59,34 +59,28 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
 const getTransactionsWithBalance = (bankName: BankName): Transaction[] => {
     const list = expenses[bankName] || [];
     
-    // 1. First, sort chronologically (oldest first) so the mathematical chain links row-by-row correctly
-    const chronologicalList = [...list].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
-
+    // We strictly preserve the natural chronological row order from your Excel sheet!
     let runningBal = 0;
-    const computedList = chronologicalList.map((tx) => {
-      // Rule A: If the row already contains a pre-saved balance from your Excel sheet, use it
+    
+    return list.map((tx) => {
+      // Rule A: If the entry came from Excel and has an official balance, use it exactly as-is
       if (tx.balance !== undefined && tx.balance !== 0) {
         runningBal = tx.balance;
         return tx;
       }
       
-      // Rule B: For newly added rows, execute your exact formula: Prev + Credit - Cost
+      // Rule B: Only calculate for newly added entries in the current session: Prev + Credit - Cost
       runningBal = runningBal + (tx.credit || 0) - (tx.cost || 0);
       return {
         ...tx,
         balance: runningBal
       };
     });
-
-    // 2. Return the list in the descending view order your UI layout likes, with the math intact
-    return computedList.sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
   };
+
   const currentBankTransactions = getTransactionsWithBalance(selectedBank);
-  // Sort descending for display so the newest transactions are visible first
+  
+  // Display the newest transactions at the top of the table by reversing the layout view order
   const displayTransactions = [...currentBankTransactions].reverse();
 
   const handleFormSubmit = (e: React.FormEvent) => {
