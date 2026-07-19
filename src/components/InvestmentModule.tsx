@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Trash2, Plus, Calendar, Tag, FileText, IndianRupee,Layers } from "lucide-react";
+import { Trash2, Plus, Calendar, FileText, IndianRupee, Layers } from "lucide-react";
 import { InvestmentData, InvestmentType, InvestmentItem } from "../types";
 
 interface InvestmentModuleProps {
@@ -30,13 +30,12 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
   const [formError, setFormError] = useState("");
 
   const tabs: InvestmentType[] = ["Stocks", "SIP", "GoldSilver"];
-
   const currentItems = investments[selectedTab] || [];
   
-  // Sort descending for display so the newest entry is visible first
-  const displayItems = [...currentItems].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
+  // Clean chronological sort engine ensuring string dates are read natively
+  const displayItems = [...currentItems].sort((a, b) => {
+    return new Date(b.date).getTime() - new Date(a.date).getTime();
+  });
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,7 +71,6 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
       });
     }
 
-    // Reset Form
     setGroup("");
     setName("");
     setPrice("");
@@ -85,36 +83,32 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
     return new Intl.NumberFormat("en-IN", {
       style: "currency",
       currency: "INR",
-      maximumFractionDigits: 2,
+      maximumFractionDigits: 0,
     }).format(val);
   };
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs max-w-7xl mx-auto" id="investment-module">
-      {/* Module Title & Tab Sync Time */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-5 border-b border-slate-100">
         <div>
           <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-md uppercase tracking-wider">
             Investment Portfolio
           </span>
           <h2 className="text-base font-bold text-slate-800 mt-2.5">
-            [{selectedTab === "GoldSilver" ? "Gold & Silver" : selectedTab}] Portfolio Updated:{" "}
+            [{selectedTab === "GoldSilver" ? "Gold & Silver" : selectedTab}] Portfolio:{" "}
             <span className="text-slate-500 font-mono text-xs font-medium">
               {syncTime || "Not synced (Local state)"}
             </span>
           </h2>
         </div>
 
-        {/* Tab Selection */}
         <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200/50">
           {tabs.map((tab) => (
             <button
               key={tab}
               onClick={() => { setSelectedTab(tab); setTargetTab(tab); }}
               className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
-                selectedTab === tab
-                  ? "bg-white text-indigo-600 shadow-xs"
-                  : "text-slate-600 hover:text-slate-800"
+                selectedTab === tab ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600 hover:text-slate-800"
               }`}
             >
               {tab === "GoldSilver" ? "Gold & Silver" : tab}
@@ -124,7 +118,6 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Table View */}
         <div className="lg:col-span-8 order-2 lg:order-1 flex flex-col min-h-[400px]">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">
@@ -149,38 +142,25 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
                 <AnimatePresence initial={false}>
                   {displayItems.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="text-center py-12 text-slate-400 text-xs font-medium">
-                        No asset data found.
-                      </td>
+                      <td colSpan={7} className="text-center py-12 text-slate-400 text-xs font-medium">No asset data found.</td>
                     </tr>
                   ) : (
                     displayItems.map((item) => (
-                      <motion.tr
-                        key={item.id}
-                        layout
-                        className="bg-white border-b border-slate-100 hover:bg-slate-50/50 transition-colors text-xs text-slate-600"
-                      >
+                      <motion.tr key={item.id} layout className="bg-white border-b border-slate-100 hover:bg-slate-50/50 text-xs text-slate-600">
                         <td className="py-3 px-4 font-mono text-slate-500 whitespace-nowrap">{item.date}</td>
                         <td className="py-3 px-4">
                           <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200/50">
-                            {item.group}
+                            {item.group || "Asset"}
                           </span>
                         </td>
                         <td className="py-3 px-4 font-medium text-slate-800">{item.name}</td>
-                        {selectedTab !== "SIP" && (
-                          <td className="py-3 px-4 text-right font-mono">{formatCurrency(item.price)}</td>
-                        )}
-                        {selectedTab !== "SIP" && (
-                          <td className="py-3 px-4 text-right font-mono">{item.qty}</td>
-                        )}
+                        {selectedTab !== "SIP" && <td className="py-3 px-4 text-right font-mono">{formatCurrency(item.price)}</td>}
+                        {selectedTab !== "SIP" && <td className="py-3 px-4 text-right font-mono">{item.qty}</td>}
                         <td className="py-3 px-4 text-right font-mono text-slate-900 font-semibold">
                           {formatCurrency(selectedTab === "SIP" ? item.amount : (item.price * item.qty))}
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <button
-                            onClick={() => onDeleteAsset(selectedTab, item)}
-                            className="text-slate-400 hover:text-rose-600 p-1 rounded transition-colors cursor-pointer"
-                          >
+                          <button onClick={() => onDeleteAsset(selectedTab, item)} className="text-slate-400 hover:text-rose-600 p-1 rounded transition-colors cursor-pointer">
                             <Trash2 size={13} />
                           </button>
                         </td>
@@ -225,7 +205,7 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">Sector / Group</label>
                 <div className="relative">
-                  <input type="text" placeholder="e.g. Automobile, Mid cap, Gold" value={group} onChange={(e) => setGroup(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none" />
+                  <input type="text" placeholder="e.g. Automobile, Mid cap" value={group} onChange={(e) => setGroup(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none" />
                   <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400"><Layers size={14} /></div>
                 </div>
               </div>
@@ -233,7 +213,7 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">Asset Name</label>
                 <div className="relative">
-                  <input type="text" placeholder="e.g. Tata Motors, Motilal Oswal" value={name} onChange={(e) => setName(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none" />
+                  <input type="text" placeholder="e.g. Tata Motors" value={name} onChange={(e) => setName(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none" />
                   <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400"><FileText size={14} /></div>
                 </div>
               </div>
