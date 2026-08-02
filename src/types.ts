@@ -70,3 +70,23 @@ export interface SyncState {
     GoldSilver: string | null;
   };
 }
+
+// --- Navigation Tab Types ---
+export type ActiveTab = 'expenses' | 'investments' | 'analytics';
+
+// --- Analytics Data Structures ---
+export interface MonthlyCashFlow {
+  month: string;  // e.g., "Aug 2026"
+  credit: number;
+  cost: number;
+}
+
+export interface AssetAllocationData {
+  name: string;   // e.g., "Stocks", "SIP", "Gold & Silver"
+  value: number;
+}
+
+export interface SectorAllocationData {
+  name: string;   // e.g., "IT", "Banking", "Automobile"
+  value: number;
+}

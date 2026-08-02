@@ -8,6 +8,7 @@ import { AppHeader } from "./components/AppHeader";
 import { DashboardStats } from "./components/DashboardStats";
 import { ExpenseModule } from "./components/ExpenseModule";
 import { InvestmentModule } from "./components/InvestmentModule";
+import { AnalyticsModule } from "./components/AnalyticsModule";
 import { DEFAULT_SYNC_STATE } from "./data";
 import { SyncState, BankName, AssetClass, Transaction } from "./types";
 import { Wallet, LineChart } from "lucide-react";
@@ -31,7 +32,7 @@ export default function App() {
     return DEFAULT_SYNC_STATE;
   });
 
-  const [activeModule, setActiveModule] = useState<"expenses" | "portfolio">("expenses");
+  const [activeModule, setActiveModule] = useState<"expenses" | "portfolio" | "analytics">("expenses");
   const [scriptUrl, setScriptUrl] = useState<string>(() => {
     const savedUrl = localStorage.getItem("finsync_script_url");
     if (savedUrl && savedUrl !== "YOUR_DEPLOYED_WEB_APP_URL") {
@@ -345,6 +346,16 @@ export default function App() {
               <LineChart size={15} />
               <span>View Investment Portfolio</span>
             </button>
+            <button
+              id="nav-analytics-btn"
+              onClick={() => setActiveModule("analytics")}
+              className={`flex items-center space-x-2 px-5 py-2 rounded-md text-sm font-semibold transition-all cursor-pointer ${
+                activeModule === "analytics" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600 hover:text-slate-800"
+              }`}
+            >
+              <LineChart size={15} />
+              <span>View Analytics</span>
+            </button>
           </div>
         </div>
 
@@ -362,6 +373,12 @@ export default function App() {
               syncTime={state.globalSyncTime}
               onAddAsset={handleAddAsset}
               onDeleteAsset={handleDeleteAsset}
+            />
+          )}
+          {activeModule === 'analytics' && (
+            <AnalyticsModule
+            expenses={state.expenses}
+            investments={state.investments}
             />
           )}
         </main>
