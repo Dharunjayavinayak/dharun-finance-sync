@@ -16,23 +16,20 @@ export const DashboardStats: React.FC<DashboardStatsProps> = ({
   expenses,
   investments,
 }) => {
-  // FIX: Look at the LAST transaction element of the array because the raw incoming 
-  // sheet lists entries from oldest to newest (the final item has your current running balance).
-  // Look at the FIRST transaction element (index 0) because the state array is sorted newest-first
-  // Fetch the final balance row exactly as recorded in your spreadsheet
+  // Use the exact same calculation function as ExpenseModule.tsx
   const getBankBalance = (transactions: any[]) => {
     if (!transactions || transactions.length === 0) return 0;
     
-    // 1. First search for the entry explicitly marked with the highest row ID index
-    // or locate the latest transaction entry that contains a valid balance value
-    for (let i = transactions.length - 1; i >= 0; i--) {
-      if (transactions[i] && transactions[i].balance !== undefined && transactions[i].balance !== 0) {
-        return transactions[i].balance;
+    let runningBal = 0;
+    transactions.forEach((tx) => {
+      if (tx.balance !== undefined && tx.balance !== 0) {
+        runningBal = tx.balance;
+      } else {
+        runningBal = runningBal + (tx.credit || 0) - (tx.cost || 0);
       }
-    }
+    });
     
-    // 2. Fallback to the first transaction element
-    return transactions[0]?.balance || 0;
+    return runningBal;
   };
 
   const hdfcBal = getBankBalance(expenses.HDFC);
