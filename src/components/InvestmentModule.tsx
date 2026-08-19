@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Trash2, Plus, Calendar, FileText, IndianRupee, Layers } from "lucide-react";
-import { InvestmentData, AssetClass, StockAsset, SipAsset, GoldSilverAsset } from "../types";
+import { InvestmentData } from "../types";
 
 type InvestmentType = "Stocks" | "SIP" | "GoldSilver";
 
@@ -21,14 +21,8 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
   const [selectedTab, setSelectedTab] = useState<InvestmentType>("Stocks");
   const [viewLimit, setViewLimit] = useState<5 | 20 | "all">(5);
 
-  // Form states
-  const [date, setDate] = useState(() => {
-    const today = new Date();
-    const d = String(today.getDate()).padStart(2, "0");
-    const m = String(today.getMonth() + 1).padStart(2, "0");
-    const y = today.getFullYear();
-    return `${d}-${m}-${y}`;
-  });
+  // Date input holds YYYY-MM-DD for the HTML picker
+  const [dateInput, setDateInput] = useState(() => new Date().toISOString().split("T")[0]);
   const [group, setGroup] = useState("");
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
@@ -39,7 +33,6 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
   const tabs: InvestmentType[] = ["Stocks", "SIP", "GoldSilver"];
   const currentItems: any[] = investments[selectedTab] || [];
 
-  // Dynamic suggestion arrays
   const dynamicGroups = Array.from(
     new Set(currentItems.map((item) => item.group).filter(Boolean))
   );
@@ -47,7 +40,6 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
     new Set(currentItems.map((item) => item.name).filter(Boolean))
   );
 
-  // Parse DD-MM-YYYY for chronological sorting
   const chronologicalReversed = [...currentItems].sort((a, b) => {
     const parse = (dStr: string) => {
       if (!dStr) return 0;
@@ -79,6 +71,15 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
       return;
     }
 
+    // Convert date input (YYYY-MM-DD) to sheet standard (DD-MM-YYYY)
+    let formattedDate = dateInput;
+    if (dateInput.includes("-")) {
+      const parts = dateInput.split("-");
+      if (parts[0].length === 4) {
+        formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`; // Convert to DD-MM-YYYY
+      }
+    }
+
     if (selectedTab === "SIP") {
       const amtVal = parseFloat(amount) || 0;
       if (amtVal <= 0) {
@@ -86,7 +87,7 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
         return;
       }
       onAddAsset("SIP", {
-        date,
+        date: formattedDate,
         group: trimmedGroup,
         name: trimmedName,
         amount: amtVal,
@@ -102,7 +103,7 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
         return;
       }
       onAddAsset(selectedTab, {
-        date,
+        date: formattedDate,
         group: trimmedGroup,
         name: trimmedName,
         price: priceVal,
@@ -282,14 +283,13 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
 
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">
-                  Acquisition Date (DD-MM-YYYY)
+                  Acquisition Date
                 </label>
                 <div className="relative">
                   <input
-                    type="text"
-                    placeholder="DD-MM-YYYY"
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
+                    type="date"
+                    value={dateInput}
+                    onChange={(e) => setDateInput(e.target.value)}
                     required
                     className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs font-mono text-slate-800 focus:outline-none"
                   />
@@ -299,7 +299,6 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
                 </div>
               </div>
 
-              {/* Group / Sector Field */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">
                   Sector / Group
@@ -308,7 +307,7 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
                   <input
                     type="text"
                     list="inv-group-suggestions"
-                    placeholder="e.g. Automobile, IT, FMGC"
+                    placeholder="e.g. Automobile, IT, FMGC, Pharma"
                     value={group}
                     onChange={(e) => setGroup(e.target.value)}
                     required
@@ -325,7 +324,6 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
                 </div>
               </div>
 
-              {/* Asset Name Field */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">
                   Asset Name
@@ -334,7 +332,7 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
                   <input
                     type="text"
                     list="inv-name-suggestions"
-                    placeholder="e.g. Tata Motors, ITC"
+                    placeholder="e.g. Tata Motors, ITC, Wipro"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     required

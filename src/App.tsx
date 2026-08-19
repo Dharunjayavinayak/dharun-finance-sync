@@ -13,11 +13,15 @@ import { DEFAULT_SYNC_STATE } from "./data";
 import { SyncState, BankName, AssetClass, Transaction } from "./types";
 import { Wallet, LineChart, BarChart3 } from "lucide-react";
 
-// ==========================================================
-// 1. CONFIG STRING PLACEHOLDER
-// Paste your published Google Apps Script Web App URL here.
-// ==========================================================
 const APPS_SCRIPT_URL = 'YOUR_DEPLOYED_WEB_APP_URL';
+
+function cleanNumber(val: any): number {
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (!val) return 0;
+  const sanitized = String(val).replace(/[^0-9.-]+/g, '');
+  const num = parseFloat(sanitized);
+  return isNaN(num) ? 0 : num;
+}
 
 export default function App() {
   const [state, setState] = useState<SyncState>(() => {
@@ -44,7 +48,6 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "success" | "error">("idle");
   const [syncError, setSyncError] = useState<string | null>(null);
 
-  // Persistence to local storage
   useEffect(() => {
     localStorage.setItem("finsync_app_state", JSON.stringify(state));
   }, [state]);
@@ -53,7 +56,6 @@ export default function App() {
     localStorage.setItem("finsync_script_url", scriptUrl);
   }, [scriptUrl]);
 
-  // Handle setting endpoint from UI Settings
   const handleUrlChange = (newUrl: string) => {
     setScriptUrl(newUrl);
     if (newUrl && newUrl !== "YOUR_DEPLOYED_WEB_APP_URL") {
@@ -61,7 +63,6 @@ export default function App() {
     }
   };
 
-  // Automated background sync on load if URL is configured
   useEffect(() => {
     const isConfigured = scriptUrl && scriptUrl !== "YOUR_DEPLOYED_WEB_APP_URL" && scriptUrl.trim() !== "";
     if (isConfigured) {
@@ -69,7 +70,6 @@ export default function App() {
     }
   }, []);
 
-  // Sync / Fetch function
   const triggerSync = async (targetUrl = scriptUrl) => {
     if (!targetUrl || targetUrl === "YOUR_DEPLOYED_WEB_APP_URL" || targetUrl.trim() === "") {
       setSyncStatus("error");
@@ -110,9 +110,9 @@ export default function App() {
                 date: tx.date || new Date().toISOString().split("T")[0],
                 category: tx.category || "General",
                 reason: tx.reason || "Unspecified record",
-                credit: parseFloat(tx.credit) || 0,
-                cost: parseFloat(tx.cost) || 0,
-                balance: parseFloat(tx.balance) || 0,
+                credit: cleanNumber(tx.credit),
+                cost: cleanNumber(tx.cost),
+                balance: cleanNumber(tx.balance),
               }));
               nextState.bankSyncTimes[bank] = nowStr;
             }
@@ -130,10 +130,10 @@ export default function App() {
               date: st.date || new Date().toISOString().split("T")[0],
               group: st.group || "General",
               name: st.name || "STOCK",
-              qty: parseFloat(st.qty) || 0,
-              price: parseFloat(st.price) || 0,
-              amount: parseFloat(st.amount) || 0,
-              currentPrice: parseFloat(st.currentPrice || st.price) || 0,
+              qty: cleanNumber(st.qty),
+              price: cleanNumber(st.price),
+              amount: cleanNumber(st.amount),
+              currentPrice: cleanNumber(st.currentPrice || st.price),
             }));
             nextState.assetSyncTimes.Stocks = nowStr;
           }
@@ -145,8 +145,8 @@ export default function App() {
               date: sip.date || new Date().toISOString().split("T")[0],
               group: sip.group || "Mutual Fund",
               name: sip.name || "Mutual Fund",
-              amount: parseFloat(sip.amount) || 0,
-              currentValue: parseFloat(sip.currentValue || sip.amount) || 0,
+              amount: cleanNumber(sip.amount),
+              currentValue: cleanNumber(sip.currentValue || sip.amount),
             }));
             nextState.assetSyncTimes.SIP = nowStr;
           }
@@ -158,10 +158,10 @@ export default function App() {
               date: gs.date || new Date().toISOString().split("T")[0],
               group: gs.group || "Metal",
               name: gs.name || "Metal Asset",
-              qty: parseFloat(gs.qty) || 0,
-              price: parseFloat(gs.price) || 0,
-              amount: parseFloat(gs.amount) || 0,
-              currentPrice: parseFloat(gs.currentPrice || gs.price) || 0,
+              qty: cleanNumber(gs.qty),
+              price: cleanNumber(gs.price),
+              amount: cleanNumber(gs.amount),
+              currentPrice: cleanNumber(gs.currentPrice || gs.price),
             }));
             nextState.assetSyncTimes.GoldSilver = nowStr;
           }
@@ -183,7 +183,6 @@ export default function App() {
     }
   };
 
-  // Remote API update runner
   const sendActionToApi = async (payload: any) => {
     const isConfigured = scriptUrl && scriptUrl !== "YOUR_DEPLOYED_WEB_APP_URL" && scriptUrl.trim() !== "";
     if (!isConfigured) {
@@ -216,7 +215,6 @@ export default function App() {
     }
   };
 
-  // Transaction mutation handlers
   const handleAddTransaction = (bank: BankName, tx: Omit<Transaction, "id">) => {
     const newTx: Transaction = {
       ...tx,
@@ -259,7 +257,6 @@ export default function App() {
     });
   };
 
-  // Investment mutation handlers (Preserves user typed Group)
   const handleAddAsset = (assetClass: AssetClass, asset: any) => {
     const newId = `${assetClass.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`;
     const newAsset = { ...asset, id: newId };
@@ -359,7 +356,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Clean, Isolated View Routing */}
         <main className="transition-all duration-300" id="primary-view-container">
           {activeModule === "expenses" && (
             <ExpenseModule
@@ -380,7 +376,10 @@ export default function App() {
           )}
 
           {activeModule === "analytics" && (
-            <AnalyticsModule expenses={state.expenses} />
+            <AnalyticsModule
+              expenses={state.expenses}
+              investments={state.investments}
+            />
           )}
         </main>
       </div>
