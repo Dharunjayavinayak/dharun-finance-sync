@@ -23,8 +23,8 @@ const MONTH_NAMES = [
 ];
 
 /**
- * Robust date parser: Prevents UTC timezone shift issues
- * Handles 'YYYY-MM-DD', 'YYYY/MM/DD', and DD-MM-YYYY formats.
+ * Exact parser for DD-MM-YYYY Google Sheet dates (e.g., 02-08-2026, 14-08-2026)
+ * Avoids browser timezone issues.
  */
 function parseTxDate(dateStr?: string): { year: number; month: number; day: number } | null {
   if (!dateStr || typeof dateStr !== 'string') return null;
@@ -37,19 +37,19 @@ function parseTxDate(dateStr?: string): { year: number; month: number; day: numb
       : { year: fallback.getFullYear(), month: fallback.getMonth(), day: fallback.getDate() };
   }
 
-  // Check if format is YYYY-MM-DD
-  if (parts[0].length === 4) {
-    const year = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1; // 0-indexed month
-    const day = parseInt(parts[2], 10);
+  // Handle DD-MM-YYYY
+  if (parts[2].length === 4) {
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1; // JavaScript 0-indexed month
+    const year = parseInt(parts[2], 10);
     return { year, month, day };
   }
 
-  // Check if format is DD-MM-YYYY
-  if (parts[2].length === 4) {
-    const year = parseInt(parts[2], 10);
+  // Fallback for YYYY-MM-DD
+  if (parts[0].length === 4) {
+    const year = parseInt(parts[0], 10);
     const month = parseInt(parts[1], 10) - 1;
-    const day = parseInt(parts[0], 10);
+    const day = parseInt(parts[2], 10);
     return { year, month, day };
   }
 
@@ -57,7 +57,7 @@ function parseTxDate(dateStr?: string): { year: number; month: number; day: numb
 }
 
 /**
- * Robust numeric parser: strips currency symbols, commas, and handles decimals cleanly.
+ * Sanitizes and cleans currency inputs to avoid NaN values.
  */
 function cleanNumber(val: any): number {
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
@@ -88,6 +88,7 @@ export function AnalyticsModule({ expenses }: AnalyticsProps) {
     const now = new Date();
     const targetMonths: { year: number; month: number; label: string }[] = [];
 
+    // Rolling 5 months window ending on current month
     for (let i = 4; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       targetMonths.push({
@@ -125,7 +126,7 @@ export function AnalyticsModule({ expenses }: AnalyticsProps) {
   }, [expenses, bankIndex]);
 
   // -------------------------------------------------------------
-  // 2. TOP EXPENSES BREAKDOWN
+  // 2. TOP EXPENSES BREAKDOWN (Filtered by Month & Year)
   // -------------------------------------------------------------
   const topExpensesList = useMemo(() => {
     const allTx: { bank: string; date: string; category: string; reason: string; cost: number }[] = [];
@@ -156,7 +157,7 @@ export function AnalyticsModule({ expenses }: AnalyticsProps) {
 
   return (
     <div className="space-y-8">
-      {/* EXPENSES ANALYTICS SECTION */}
+      {/* EXPENSES ANALYTICS CARD */}
       <div className="bg-white p-6 rounded-2xl shadow-xs border border-slate-200/80">
         <div className="flex items-center space-x-2 border-b border-slate-100 pb-4 mb-6">
           <BarChart3 className="text-indigo-600" size={22} />
@@ -169,7 +170,7 @@ export function AnalyticsModule({ expenses }: AnalyticsProps) {
             <div className="flex items-center justify-between mb-4">
               <span className="text-sm font-semibold text-slate-700">Cash Flow (Prev 5 Months)</span>
 
-              {/* Bank Navigation */}
+              {/* Bank Switcher */}
               <div className="flex items-center space-x-2 bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">
                 <button
                   onClick={() => setBankIndex((prev) => (prev === 0 ? BANKS.length - 1 : prev - 1))}

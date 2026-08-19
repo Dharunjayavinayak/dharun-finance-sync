@@ -11,7 +11,7 @@ import { InvestmentModule } from "./components/InvestmentModule";
 import { AnalyticsModule } from "./components/AnalyticsModule";
 import { DEFAULT_SYNC_STATE } from "./data";
 import { SyncState, BankName, AssetClass, Transaction } from "./types";
-import { Wallet, LineChart } from "lucide-react";
+import { Wallet, LineChart, BarChart3 } from "lucide-react";
 
 // ==========================================================
 // 1. CONFIG STRING PLACEHOLDER
@@ -83,7 +83,7 @@ export default function App() {
     try {
       const response = await fetch(targetUrl);
       if (!response.ok) {
-        throw new Error(`Server returned HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(`Server returned HTTP ${response.status}:${response.statusText}`);
       }
       const data = await response.json();
 
@@ -128,7 +128,7 @@ export default function App() {
             nextState.investments.Stocks = fetchedInv.Stocks.map((st: any, idx: number) => ({
               id: st.id || `stock-fetched-${idx}`,
               date: st.date || new Date().toISOString().split("T")[0],
-              group: st.group || "General", // <-- CRUCIAL FIX: Read the Group column!
+              group: st.group || "General",
               name: st.name || "STOCK",
               qty: parseFloat(st.qty) || 0,
               price: parseFloat(st.price) || 0,
@@ -143,7 +143,7 @@ export default function App() {
             nextState.investments.SIP = fetchedInv.SIP.map((sip: any, idx: number) => ({
               id: sip.id || `sip-fetched-${idx}`,
               date: sip.date || new Date().toISOString().split("T")[0],
-              group: sip.group || "Mutual Fund", // <-- CRUCIAL FIX: Read the Group column!
+              group: sip.group || "Mutual Fund",
               name: sip.name || "Mutual Fund",
               amount: parseFloat(sip.amount) || 0,
               currentValue: parseFloat(sip.currentValue || sip.amount) || 0,
@@ -156,7 +156,7 @@ export default function App() {
             nextState.investments.GoldSilver = fetchedInv.GoldSilver.map((gs: any, idx: number) => ({
               id: gs.id || `gs-fetched-${idx}`,
               date: gs.date || new Date().toISOString().split("T")[0],
-              group: gs.group || "Metal", // <-- CRUCIAL FIX: Read the Group column!
+              group: gs.group || "Metal",
               name: gs.name || "Metal Asset",
               qty: parseFloat(gs.qty) || 0,
               price: parseFloat(gs.price) || 0,
@@ -183,7 +183,7 @@ export default function App() {
     }
   };
 
-  // Asynchronous remote API update runner
+  // Remote API update runner
   const sendActionToApi = async (payload: any) => {
     const isConfigured = scriptUrl && scriptUrl !== "YOUR_DEPLOYED_WEB_APP_URL" && scriptUrl.trim() !== "";
     if (!isConfigured) {
@@ -259,7 +259,7 @@ export default function App() {
     });
   };
 
-  // Investment mutation handlers
+  // Investment mutation handlers (Preserves user typed Group)
   const handleAddAsset = (assetClass: AssetClass, asset: any) => {
     const newId = `${assetClass.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`;
     const newAsset = { ...asset, id: newId };
@@ -276,7 +276,7 @@ export default function App() {
       action: "add",
       sheetName: assetClass,
       date: newAsset.date,
-      group: newAsset.group,
+      group: newAsset.group || "General",
       name: newAsset.name,
     };
 
@@ -320,7 +320,7 @@ export default function App() {
           onSync={() => triggerSync(scriptUrl)}
           syncStatus={syncStatus}
           syncError={syncError}
-      />
+        />
 
         <DashboardStats expenses={state.expenses} investments={state.investments} />
 
@@ -353,21 +353,24 @@ export default function App() {
                 activeModule === "analytics" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600 hover:text-slate-800"
               }`}
             >
-              <LineChart size={15} />
+              <BarChart3 size={15} />
               <span>View Analytics</span>
             </button>
           </div>
         </div>
 
+        {/* Clean, Isolated View Routing */}
         <main className="transition-all duration-300" id="primary-view-container">
-          {activeModule === "expenses" ? (
+          {activeModule === "expenses" && (
             <ExpenseModule
               expenses={state.expenses}
               syncTimes={state.bankSyncTimes}
               onAddTransaction={handleAddTransaction}
               onDeleteTransaction={handleDeleteTransaction}
             />
-          ) : (
+          )}
+
+          {activeModule === "portfolio" && (
             <InvestmentModule
               investments={state.investments}
               syncTime={state.globalSyncTime}
@@ -375,11 +378,9 @@ export default function App() {
               onDeleteAsset={handleDeleteAsset}
             />
           )}
-          {activeModule === 'analytics' && (
-            <AnalyticsModule
-            expenses={state.expenses}
-            investments={state.investments}
-            />
+
+          {activeModule === "analytics" && (
+            <AnalyticsModule expenses={state.expenses} />
           )}
         </main>
       </div>

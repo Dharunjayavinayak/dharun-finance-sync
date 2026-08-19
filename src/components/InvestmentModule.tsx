@@ -1,13 +1,15 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Trash2, Plus, Calendar, FileText, IndianRupee, Layers, Tag } from "lucide-react";
-import { InvestmentData, InvestmentType, InvestmentItem } from "../types";
+import { Trash2, Plus, Calendar, FileText, IndianRupee, Layers } from "lucide-react";
+import { InvestmentData, AssetClass, StockAsset, SipAsset, GoldSilverAsset } from "../types";
+
+type InvestmentType = "Stocks" | "SIP" | "GoldSilver";
 
 interface InvestmentModuleProps {
   investments: InvestmentData;
   syncTime: string | null;
-  onAddAsset: (type: InvestmentType, asset: Omit<InvestmentItem, "id">) => void;
-  onDeleteAsset: (type: InvestmentType, asset: InvestmentItem) => void;
+  onAddAsset: (type: InvestmentType, asset: any) => void;
+  onDeleteAsset: (type: InvestmentType, asset: any) => void;
 }
 
 export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
@@ -17,13 +19,16 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
   onDeleteAsset,
 }) => {
   const [selectedTab, setSelectedTab] = useState<InvestmentType>("Stocks");
-  
-  // NEW Enhancement: Range/Limit state (defaults to last 5 entries)
   const [viewLimit, setViewLimit] = useState<5 | 20 | "all">(5);
 
   // Form states
-  const [targetTab, setTargetTab] = useState<InvestmentType>("Stocks");
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [date, setDate] = useState(() => {
+    const today = new Date();
+    const d = String(today.getDate()).padStart(2, "0");
+    const m = String(today.getMonth() + 1).padStart(2, "0");
+    const y = today.getFullYear();
+    return `${d}-${m}-${y}`;
+  });
   const [group, setGroup] = useState("");
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
@@ -32,52 +37,78 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
   const [formError, setFormError] = useState("");
 
   const tabs: InvestmentType[] = ["Stocks", "SIP", "GoldSilver"];
-  const currentItems = investments[selectedTab] || [];
-  
-  // Collect existing group and asset name entries dynamically from sheet arrays
-  const dynamicGroups = Array.from(new Set(currentItems.map(item => item.group).filter(Boolean)));
-  const dynamicNames = Array.from(new Set(currentItems.map(item => item.name).filter(Boolean)));
+  const currentItems: any[] = investments[selectedTab] || [];
 
+  // Dynamic suggestion arrays
+  const dynamicGroups = Array.from(
+    new Set(currentItems.map((item) => item.group).filter(Boolean))
+  );
+  const dynamicNames = Array.from(
+    new Set(currentItems.map((item) => item.name).filter(Boolean))
+  );
+
+  // Parse DD-MM-YYYY for chronological sorting
   const chronologicalReversed = [...currentItems].sort((a, b) => {
-    return new Date(b.date).getTime() - new Date(a.date).getTime();
+    const parse = (dStr: string) => {
+      if (!dStr) return 0;
+      const parts = dStr.split(/[-/]/);
+      if (parts.length === 3 && parts[2].length === 4) {
+        return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0])).getTime();
+      }
+      return new Date(dStr).getTime() || 0;
+    };
+    return parse(b.date) - parse(a.date);
   });
 
-  // NEW Enhancement: Apply view range limitations
-  const displayItems = viewLimit === "all" 
-    ? chronologicalReversed 
-    : chronologicalReversed.slice(0, viewLimit);
+  const displayItems =
+    viewLimit === "all" ? chronologicalReversed : chronologicalReversed.slice(0, viewLimit);
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setFormError("");
 
-    if (!group.trim()) { setFormError("Group is required"); return; }
-    if (!name.trim()) { setFormError("Asset Name is required"); return; }
+    const trimmedGroup = group.trim();
+    const trimmedName = name.trim();
+
+    if (!trimmedGroup) {
+      setFormError("Group is required");
+      return;
+    }
+    if (!trimmedName) {
+      setFormError("Asset Name is required");
+      return;
+    }
 
     if (selectedTab === "SIP") {
       const amtVal = parseFloat(amount) || 0;
-      if (amtVal <= 0) { setFormError("Amount must be greater than 0"); return; }
+      if (amtVal <= 0) {
+        setFormError("Amount must be greater than 0");
+        return;
+      }
       onAddAsset("SIP", {
         date,
-        group: group.trim(),
-        name: name.trim(),
+        group: trimmedGroup,
+        name: trimmedName,
         amount: amtVal,
         price: amtVal,
         qty: 1,
-        currentPrice: amtVal
+        currentPrice: amtVal,
       });
     } else {
       const priceVal = parseFloat(price) || 0;
       const qtyVal = parseFloat(qty) || 0;
-      if (priceVal <= 0 || qtyVal <= 0) { setFormError("Price and Quantity must be greater than 0"); return; }
-      onAddAsset(targetTab, {
+      if (priceVal <= 0 || qtyVal <= 0) {
+        setFormError("Price and Quantity must be greater than 0");
+        return;
+      }
+      onAddAsset(selectedTab, {
         date,
-        group: group.trim(),
-        name: name.trim(),
+        group: trimmedGroup,
+        name: trimmedName,
         price: priceVal,
         qty: qtyVal,
         amount: priceVal * qtyVal,
-        currentPrice: priceVal
+        currentPrice: priceVal,
       });
     }
 
@@ -92,7 +123,7 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
     return new Intl.NumberFormat("en-IN", {
       style: "currency",
       currency: "INR",
-      maximumFractionDigits: 0,
+      maximumFractionDigits: 2,
     }).format(val);
   };
 
@@ -115,9 +146,11 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
           {tabs.map((tab) => (
             <button
               key={tab}
-              onClick={() => { setSelectedTab(tab); setTargetTab(tab); }}
+              onClick={() => setSelectedTab(tab)}
               className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
-                selectedTab === tab ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600 hover:text-slate-800"
+                selectedTab === tab
+                  ? "bg-white text-indigo-600 shadow-xs"
+                  : "text-slate-600 hover:text-slate-800"
               }`}
             >
               {tab === "GoldSilver" ? "Gold & Silver" : tab}
@@ -127,29 +160,34 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Ledger Table */}
         <div className="lg:col-span-8 order-2 lg:order-1 flex flex-col min-h-[400px]">
-          
-          {/* NEW Enhancement: View Range Controls Toolbar */}
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">
               Ledger ({displayItems.length} shown of {chronologicalReversed.length})
             </h3>
             <div className="flex items-center bg-slate-100 p-0.5 rounded-md border border-slate-200 text-[11px] font-semibold">
-              <button 
-                onClick={() => setViewLimit(5)} 
-                className={`px-2 py-1 rounded transition-all cursor-pointer ${viewLimit === 5 ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600"}`}
+              <button
+                onClick={() => setViewLimit(5)}
+                className={`px-2 py-1 rounded transition-all cursor-pointer ${
+                  viewLimit === 5 ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600"
+                }`}
               >
                 Last 5
               </button>
-              <button 
-                onClick={() => setViewLimit(20)} 
-                className={`px-2 py-1 rounded transition-all cursor-pointer ${viewLimit === 20 ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600"}`}
+              <button
+                onClick={() => setViewLimit(20)}
+                className={`px-2 py-1 rounded transition-all cursor-pointer ${
+                  viewLimit === 20 ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600"
+                }`}
               >
                 Last 20
               </button>
-              <button 
-                onClick={() => setViewLimit("all")} 
-                className={`px-2 py-1 rounded transition-all cursor-pointer ${viewLimit === "all" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600"}`}
+              <button
+                onClick={() => setViewLimit("all")}
+                className={`px-2 py-1 rounded transition-all cursor-pointer ${
+                  viewLimit === "all" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600"
+                }`}
               >
                 All Time
               </button>
@@ -173,11 +211,17 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
                 <AnimatePresence initial={false}>
                   {displayItems.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="text-center py-12 text-slate-400 text-xs font-medium">No asset data found.</td>
+                      <td colSpan={7} className="text-center py-12 text-slate-400 text-xs font-medium">
+                        No asset data found.
+                      </td>
                     </tr>
                   ) : (
                     displayItems.map((item) => (
-                      <motion.tr key={item.id} layout className="bg-white border-b border-slate-100 hover:bg-slate-50/50 text-xs text-slate-600">
+                      <motion.tr
+                        key={item.id}
+                        layout
+                        className="bg-white border-b border-slate-100 hover:bg-slate-50/50 text-xs text-slate-600"
+                      >
                         <td className="py-3 px-4 font-mono text-slate-500 whitespace-nowrap">{item.date}</td>
                         <td className="py-3 px-4">
                           <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200/50">
@@ -185,13 +229,22 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
                           </span>
                         </td>
                         <td className="py-3 px-4 font-medium text-slate-800">{item.name}</td>
-                        {selectedTab !== "SIP" && <td className="py-3 px-4 text-right font-mono">{formatCurrency(item.price)}</td>}
-                        {selectedTab !== "SIP" && <td className="py-3 px-4 text-right font-mono">{item.qty}</td>}
+                        {selectedTab !== "SIP" && (
+                          <td className="py-3 px-4 text-right font-mono">{formatCurrency(item.price)}</td>
+                        )}
+                        {selectedTab !== "SIP" && (
+                          <td className="py-3 px-4 text-right font-mono">{item.qty}</td>
+                        )}
                         <td className="py-3 px-4 text-right font-mono text-slate-900 font-semibold">
-                          {formatCurrency(selectedTab === "SIP" ? item.amount : (item.price * item.qty))}
+                          {formatCurrency(
+                            selectedTab === "SIP" ? item.amount : Number(item.price) * Number(item.qty)
+                          )}
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <button onClick={() => onDeleteAsset(selectedTab, item)} className="text-slate-400 hover:text-rose-600 p-1 rounded transition-colors cursor-pointer">
+                          <button
+                            onClick={() => onDeleteAsset(selectedTab, item)}
+                            className="text-slate-400 hover:text-rose-600 p-1 rounded transition-colors cursor-pointer"
+                          >
                             <Trash2 size={13} />
                           </button>
                         </td>
@@ -213,10 +266,12 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
 
             <form onSubmit={handleFormSubmit} className="space-y-4">
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">Asset Class</label>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">
+                  Asset Class
+                </label>
                 <select
-                  value={targetTab}
-                  onChange={(e) => { setTargetTab(e.target.value as InvestmentType); setSelectedTab(e.target.value as InvestmentType); }}
+                  value={selectedTab}
+                  onChange={(e) => setSelectedTab(e.target.value as InvestmentType)}
                   className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none"
                 >
                   <option value="Stocks">Stocks</option>
@@ -226,60 +281,137 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">Acquisition Date</label>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">
+                  Acquisition Date (DD-MM-YYYY)
+                </label>
                 <div className="relative">
-                  <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs font-mono text-slate-800 focus:outline-none" />
-                  <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400"><Calendar size={14} /></div>
+                  <input
+                    type="text"
+                    placeholder="DD-MM-YYYY"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    required
+                    className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs font-mono text-slate-800 focus:outline-none"
+                  />
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400">
+                    <Calendar size={14} />
+                  </div>
                 </div>
               </div>
 
-              {/* Enhanced Combobox Input: Sector / Group */}
+              {/* Group / Sector Field */}
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">Sector / Group</label>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">
+                  Sector / Group
+                </label>
                 <div className="relative">
-                  <input type="text" list="inv-group-suggestions" placeholder="Type or select..." value={group} onChange={(e) => setGroup(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none" />
+                  <input
+                    type="text"
+                    list="inv-group-suggestions"
+                    placeholder="e.g. Automobile, IT, FMGC"
+                    value={group}
+                    onChange={(e) => setGroup(e.target.value)}
+                    required
+                    className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none"
+                  />
                   <datalist id="inv-group-suggestions">
-                    {dynamicGroups.map(grp => <option key={grp} value={grp} />)}
+                    {dynamicGroups.map((grp) => (
+                      <option key={grp} value={grp} />
+                    ))}
                   </datalist>
-                  <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400"><Layers size={14} /></div>
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400">
+                    <Layers size={14} />
+                  </div>
                 </div>
               </div>
 
-              {/* Enhanced Combobox Input: Asset Name */}
+              {/* Asset Name Field */}
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">Asset Name</label>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">
+                  Asset Name
+                </label>
                 <div className="relative">
-                  <input type="text" list="inv-name-suggestions" placeholder="e.g. Tata Motors" value={name} onChange={(e) => setName(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none" />
+                  <input
+                    type="text"
+                    list="inv-name-suggestions"
+                    placeholder="e.g. Tata Motors, ITC"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs text-slate-800 focus:outline-none"
+                  />
                   <datalist id="inv-name-suggestions">
-                    {dynamicNames.map(nm => <option key={nm} value={nm} />)}
+                    {dynamicNames.map((nm) => (
+                      <option key={nm} value={nm} />
+                    ))}
                   </datalist>
-                  <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400"><FileText size={14} /></div>
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400">
+                    <FileText size={14} />
+                  </div>
                 </div>
               </div>
 
               {selectedTab === "SIP" ? (
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">SIP Amount</label>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">
+                    SIP Amount
+                  </label>
                   <div className="relative">
-                    <input type="number" placeholder="Amount" value={amount} onChange={(e) => setAmount(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs font-mono text-slate-800 focus:outline-none" />
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400"><IndianRupee size={14} /></div>
+                    <input
+                      type="number"
+                      placeholder="Amount"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      required
+                      className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs font-mono text-slate-800 focus:outline-none"
+                    />
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400">
+                      <IndianRupee size={14} />
+                    </div>
                   </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">Buy Price</label>
-                    <input type="number" placeholder="Price" step="any" value={price} onChange={(e) => setPrice(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs font-mono text-slate-800 focus:outline-none" />
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">
+                      Buy Price
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="Price"
+                      step="any"
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value)}
+                      required
+                      className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs font-mono text-slate-800 focus:outline-none"
+                    />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">Quantity</label>
-                    <input type="number" placeholder="Qty" step="any" value={qty} onChange={(e) => setQty(e.target.value)} required className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs font-mono text-slate-800 focus:outline-none" />
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">
+                      Quantity
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="Qty"
+                      step="any"
+                      value={qty}
+                      onChange={(e) => setQty(e.target.value)}
+                      required
+                      className="w-full bg-white border border-slate-200 rounded-md py-1.5 px-2.5 text-xs font-mono text-slate-800 focus:outline-none"
+                    />
                   </div>
                 </div>
               )}
 
-              {formError && <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 p-2 rounded">{formError}</div>}
-              <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-md text-xs transition-colors cursor-pointer flex items-center justify-center">
+              {formError && (
+                <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 p-2 rounded">
+                  {formError}
+                </div>
+              )}
+              <button
+                type="submit"
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-md text-xs transition-colors cursor-pointer flex items-center justify-center"
+              >
                 <Plus size={14} className="mr-1" /> Add Asset Record
               </button>
             </form>
