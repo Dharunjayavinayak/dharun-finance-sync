@@ -24,6 +24,64 @@ interface ExpenseModuleProps {
   onDeleteTransaction: (bank: BankName, tx: Transaction) => void;
 }
 
+/**
+ * Standardizes any date string (DD-MM-YYYY, YYYY-MM-DD, ISO) into DD-MM-YYYY
+ */
+function toStandardDisplayDate(dateStr?: string): string {
+  if (!dateStr || typeof dateStr !== "string") return "";
+  const clean = dateStr.trim().split("T")[0];
+  const parts = clean.split(/[-/]/);
+
+  if (parts.length === 3) {
+    // Already DD-MM-YYYY
+    if (parts[2].length === 4) {
+      const day = parts[0].padStart(2, "0");
+      const month = parts[1].padStart(2, "0");
+      const year = parts[2];
+      return `${day}-${month}-${year}`;
+    }
+    // Convert YYYY-MM-DD to DD-MM-YYYY
+    if (parts[0].length === 4) {
+      const year = parts[0];
+      const month = parts[1].padStart(2, "0");
+      const day = parts[2].padStart(2, "0");
+      return `${day}-${month}-${year}`;
+    }
+  }
+
+  const parsed = new Date(dateStr);
+  if (!isNaN(parsed.getTime())) {
+    const day = String(parsed.getDate()).padStart(2, "0");
+    const month = String(parsed.getMonth() + 1).padStart(2, "0");
+    const year = parsed.getFullYear();
+    return `${day}-${month}-${year}`;
+  }
+
+  return dateStr;
+}
+
+/**
+ * Parses date for precise timestamp comparison without timezone shifts
+ */
+function getTimestampFromDateStr(dateStr?: string): number {
+  if (!dateStr) return 0;
+  const clean = dateStr.trim().split("T")[0];
+  const parts = clean.split(/[-/]/);
+
+  if (parts.length === 3) {
+    // DD-MM-YYYY
+    if (parts[2].length === 4) {
+      return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0])).getTime();
+    }
+    // YYYY-MM-DD
+    if (parts[0].length === 4) {
+      return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])).getTime();
+    }
+  }
+
+  return new Date(dateStr).getTime() || 0;
+}
+
 export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
   expenses,
   syncTimes,
@@ -33,7 +91,7 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
   const [selectedBank, setSelectedBank] = useState<BankName>("HDFC");
   const [viewLimit, setViewLimit] = useState<5 | 20 | "all">(5);
 
-  // --- Inline Filter / Search States ---
+  // --- Filter / Search States ---
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [categoryQuery, setCategoryQuery] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
@@ -52,7 +110,6 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
   const banks: BankName[] = ["HDFC", "IOB", "Canara"];
   const currentBankTransactions = expenses[selectedBank] || [];
 
-  // Close dropdown on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -66,14 +123,13 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Focus input when filter opens
   useEffect(() => {
     if (isFilterOpen && searchInputRef.current) {
       searchInputRef.current.focus();
     }
   }, [isFilterOpen]);
 
-  // 1. Dynamic Top Repeated Categories (Ranked by Frequency)
+  // Dynamic ranking of categories by frequency
   const rankedCategories = useMemo(() => {
     const counts: Record<string, number> = {};
     currentBankTransactions.forEach((tx) => {
@@ -86,16 +142,14 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
     return Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
   }, [currentBankTransactions]);
 
-  // 2. Filtered category suggestions based on user input
   const suggestedCategories = useMemo(() => {
     if (!categoryQuery.trim()) {
-      return rankedCategories.slice(0, 6); // Top 6 most repeated
+      return rankedCategories.slice(0, 6);
     }
     const q = categoryQuery.toLowerCase();
     return rankedCategories.filter((cat) => cat.toLowerCase().includes(q));
   }, [rankedCategories, categoryQuery]);
 
-  // 3. Form Combobox suggestions for Category & Reason
   const formDynamicCategories = Array.from(
     new Set(currentBankTransactions.map((tx) => tx.category).filter(Boolean))
   );
@@ -103,33 +157,26 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
     new Set(currentBankTransactions.map((tx) => tx.reason).filter(Boolean))
   );
 
-  // 4. Reverse chronological ordering
+  // Enforce DD-MM-YYYY on display and exact reverse-chronological order
   const chronologicalReversed = useMemo(() => {
-    return [...currentBankTransactions].sort((a, b) => {
-      const parse = (dStr: string) => {
-        if (!dStr) return 0;
-        const parts = dStr.split(/[-/]/);
-        if (parts.length === 3 && parts[2].length === 4) {
-          return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0])).getTime();
-        }
-        return new Date(dStr).getTime() || 0;
-      };
-      return parse(b.date) - parse(a.date);
-    });
+    return [...currentBankTransactions]
+      .map((tx) => ({
+        ...tx,
+        date: toStandardDisplayDate(tx.date),
+      }))
+      .sort((a, b) => getTimestampFromDateStr(b.date) - getTimestampFromDateStr(a.date));
   }, [currentBankTransactions]);
 
-  // 5. Apply Category Filtering & Limit Logic
+  // Apply Filter: searches across All Time if a category query exists
   const displayItems = useMemo(() => {
     const trimmedQuery = categoryQuery.trim().toLowerCase();
 
-    // If category filter is active, search across ALL records
     if (trimmedQuery) {
       return chronologicalReversed.filter((tx) =>
         tx.category?.toLowerCase().includes(trimmedQuery)
       );
     }
 
-    // Default view range limit
     return viewLimit === "all" ? chronologicalReversed : chronologicalReversed.slice(0, viewLimit);
   }, [chronologicalReversed, categoryQuery, viewLimit]);
 
@@ -155,14 +202,8 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
       return;
     }
 
-    // Convert date input (YYYY-MM-DD) to DD-MM-YYYY
-    let formattedDate = dateInput;
-    if (dateInput.includes("-")) {
-      const parts = dateInput.split("-");
-      if (parts[0].length === 4) {
-        formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
-      }
-    }
+    // Always convert HTML date picker (YYYY-MM-DD) to strict DD-MM-YYYY
+    const formattedDate = toStandardDisplayDate(dateInput);
 
     onAddTransaction(targetBank, {
       date: formattedDate,
@@ -189,7 +230,6 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs max-w-7xl mx-auto" id="expense-module">
-      {/* Module Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-5 border-b border-slate-100">
         <div>
           <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-md uppercase tracking-wider">
@@ -203,7 +243,6 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
           </h2>
         </div>
 
-        {/* Bank Switcher */}
         <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200/50">
           {banks.map((bank) => (
             <button
@@ -225,7 +264,6 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Ledger Section */}
         <div className="lg:col-span-8 order-2 lg:order-1 flex flex-col min-h-[400px]">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">
@@ -233,7 +271,6 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
             </h3>
 
             <div className="flex items-center gap-2">
-              {/* Inline Search / Filter Component */}
               <div className="relative" ref={filterContainerRef}>
                 {!isFilterOpen ? (
                   <button
@@ -278,7 +315,6 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
                   </div>
                 )}
 
-                {/* Dropdown Suggestions */}
                 {isFilterOpen && showDropdown && (
                   <div className="absolute left-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-lg shadow-lg z-50 p-2">
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1">
@@ -313,7 +349,6 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
                 )}
               </div>
 
-              {/* View Limit Selector */}
               <div className="flex items-center bg-slate-100 p-0.5 rounded-md border border-slate-200 text-[11px] font-semibold">
                 <button
                   disabled={Boolean(categoryQuery)}
@@ -352,7 +387,6 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
             </div>
           </div>
 
-          {/* Ledger Table */}
           <div className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-50/20 flex-1">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -414,7 +448,6 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
           </div>
         </div>
 
-        {/* Add Transaction Form */}
         <div className="lg:col-span-4 order-1 lg:order-2">
           <div className="bg-slate-50/40 rounded-xl border border-slate-200 p-5 shadow-xs">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 pb-3 border-b border-slate-200/60">
