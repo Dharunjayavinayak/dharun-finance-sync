@@ -1,6 +1,18 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { BankData, InvestmentData, BankName } from '../types';
-import { ChevronLeft, ChevronRight, PieChart as PieIcon, BarChart3, TrendingUp } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  PieChart as PieIcon,
+  BarChart3,
+  TrendingUp,
+  Plus,
+  Minus,
+  Search,
+  X,
+  Filter as FilterIcon,
+  Tag
+} from 'lucide-react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -17,46 +29,47 @@ import {
   Area
 } from 'recharts';
 
+type AssetCategory = 'Stocks' | 'SIP' | 'GoldSilver';
+
 interface AnalyticsProps {
   expenses: BankData;
   investments: InvestmentData;
 }
 
 const BANKS: (BankName | 'All')[] = ['All', 'HDFC', 'IOB', 'Canara'];
-const PIE_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#3b82f6', '#06b6d4', '#84cc16'];
+const ASSET_TABS: { key: AssetCategory; label: string }[] = [
+  { key: 'Stocks', label: 'Stocks' },
+  { key: 'SIP', label: 'SIP / Mutual Funds' },
+  { key: 'GoldSilver', label: 'Gold & Silver' }
+];
+
+const PIE_COLORS = [
+  '#6366f1', '#10b981', '#f59e0b', '#ec4899',
+  '#8b5cf6', '#3b82f6', '#06b6d4', '#84cc16'
+];
+
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
-/**
- * Robust date parser supporting DD-MM-YYYY, YYYY-MM-DD, and ISO strings.
- * Prevents UTC / Local timezone day-shift corruption.
- */
 function parseTxDate(dateStr?: string): { year: number; month: number; day: number } | null {
   if (!dateStr || typeof dateStr !== 'string') return null;
-
   const clean = dateStr.trim().split('T')[0];
   const parts = clean.split(/[-/]/);
 
   if (parts.length === 3) {
-    // Format: DD-MM-YYYY (e.g. 02-08-2026)
     if (parts[2].length === 4) {
       const day = parseInt(parts[0], 10);
-      const month = parseInt(parts[1], 10) - 1; // 0-indexed
+      const month = parseInt(parts[1], 10) - 1;
       const year = parseInt(parts[2], 10);
-      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
-        return { year, month, day };
-      }
+      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) return { year, month, day };
     }
-    // Format: YYYY-MM-DD (e.g. 2026-08-02)
     if (parts[0].length === 4) {
       const year = parseInt(parts[0], 10);
       const month = parseInt(parts[1], 10) - 1;
       const day = parseInt(parts[2], 10);
-      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
-        return { year, month, day };
-      }
+      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) return { year, month, day };
     }
   }
 
@@ -64,19 +77,23 @@ function parseTxDate(dateStr?: string): { year: number; month: number; day: numb
   if (!isNaN(fallback.getTime())) {
     return { year: fallback.getFullYear(), month: fallback.getMonth(), day: fallback.getDate() };
   }
-
   return null;
 }
 
-/**
- * Sanitizes numeric strings and handles decimals/currency safely.
- */
 function cleanNumber(val: any): number {
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
   if (!val) return 0;
   const sanitized = String(val).replace(/[^0-9.-]+/g, '');
   const num = parseFloat(sanitized);
   return isNaN(num) ? 0 : num;
+}
+
+function formatCurrency(val: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0
+  }).format(val);
 }
 
 export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
@@ -86,8 +103,41 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [topLimit, setTopLimit] = useState<number>(5);
 
-  // --- Investment Filter State ---
+  // --- Investment Trend State ---
   const [invTimeframe, setInvTimeframe] = useState<'5m' | '1y' | 'all'>('5m');
+
+  // --- Asset Navigation & Accordion State ---
+  const [assetTabIndex, setAssetTabIndex] = useState<number>(0);
+  const [expandedSectors, setExpandedSectors] = useState<Record<string, boolean>>({});
+
+  // --- Inline Search Filter State ---
+  const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [showDropdown, setShowDropdown] = useState<boolean>(false);
+  const filterContainerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const activeAssetType = ASSET_TABS[assetTabIndex].key;
+
+  // Handle outside click for search suggestions
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        filterContainerRef.current &&
+        !filterContainerRef.current.contains(event.target as Node)
+      ) {
+        setShowDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (isFilterOpen && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [isFilterOpen]);
 
   const availableYears = useMemo(() => {
     const currentYear = new Date().getFullYear();
@@ -95,28 +145,27 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
   }, []);
 
   // -------------------------------------------------------------
-  // 1. EXPENSE CASH FLOW DATA (Prev 5 Months Window)
+  // 1. EXPENSE CASH FLOW (Prev 5 Months Window)
   // -------------------------------------------------------------
   const cashFlowData = useMemo(() => {
     const selectedBank = BANKS[bankIndex];
     const result: { month: string; credit: number; cost: number }[] = [];
-
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth();
 
     const targetMonths: { year: number; month: number; label: string }[] = [];
-
     for (let i = 4; i >= 0; i--) {
       const d = new Date(currentYear, currentMonth - i, 1);
       targetMonths.push({
         year: d.getFullYear(),
         month: d.getMonth(),
-        label: d.toLocaleString('en-US', { month: 'short', year: '2-digit' }),
+        label: d.toLocaleString('en-US', { month: 'short', year: '2-digit' })
       });
     }
 
-    const bankList: BankName[] = selectedBank === 'All' ? ['HDFC', 'IOB', 'Canara'] : [selectedBank];
+    const bankList: BankName[] =
+      selectedBank === 'All' ? ['HDFC', 'IOB', 'Canara'] : [selectedBank];
 
     targetMonths.forEach((target) => {
       let creditSum = 0;
@@ -135,8 +184,8 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
 
       result.push({
         month: target.label,
-        credit: Math.round(creditSum * 100) / 100,
-        cost: Math.round(costSum * 100) / 100,
+        credit: Math.round(creditSum),
+        cost: Math.round(costSum)
       });
     });
 
@@ -144,7 +193,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
   }, [expenses, bankIndex]);
 
   // -------------------------------------------------------------
-  // 2. TOP EXPENSES BREAKDOWN (Filtered by Month, Year, Limit)
+  // 2. TOP EXPENSES BREAKDOWN
   // -------------------------------------------------------------
   const topExpensesList = useMemo(() => {
     const allTx: { bank: string; date: string; category: string; reason: string; cost: number }[] = [];
@@ -162,7 +211,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
             date: tx.date,
             category: tx.category?.trim() || 'General',
             reason: tx.reason?.trim() || 'Expense',
-            cost: cost,
+            cost: cost
           });
         }
       });
@@ -173,7 +222,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
   }, [expenses, selectedMonth, selectedYear, topLimit]);
 
   // -------------------------------------------------------------
-  // 3. INVESTMENT CUMULATIVE VALUE TREND
+  // 3. CUMULATIVE INVESTED VALUE
   // -------------------------------------------------------------
   const investmentTrendData = useMemo(() => {
     let numMonths = 5;
@@ -186,24 +235,22 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
     const currentMonth = now.getMonth();
 
     for (let i = numMonths - 1; i >= 0; i--) {
-      const targetDate = new Date(currentYear, currentMonth - i + 1, 0); // Last day of target month
+      const targetDate = new Date(currentYear, currentMonth - i + 1, 0);
       const targetYear = targetDate.getFullYear();
       const targetMonth = targetDate.getMonth();
       const monthLabel = targetDate.toLocaleString('en-US', { month: 'short', year: '2-digit' });
 
       let cumulativeTotal = 0;
 
-      // Cumulative Stocks
       (investments?.Stocks || []).forEach((st: any) => {
         const p = parseTxDate(st.date);
         if (p && (p.year < targetYear || (p.year === targetYear && p.month <= targetMonth))) {
           const qty = cleanNumber(st.qty);
           const price = cleanNumber(st.price);
-          cumulativeTotal += qty * price;
+          cumulativeTotal += cleanNumber(st.amount) || (qty * price);
         }
       });
 
-      // Cumulative SIP
       (investments?.SIP || []).forEach((sip: any) => {
         const p = parseTxDate(sip.date);
         if (p && (p.year < targetYear || (p.year === targetYear && p.month <= targetMonth))) {
@@ -211,19 +258,18 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
         }
       });
 
-      // Cumulative Gold & Silver
       (investments?.GoldSilver || []).forEach((gs: any) => {
         const p = parseTxDate(gs.date);
         if (p && (p.year < targetYear || (p.year === targetYear && p.month <= targetMonth))) {
           const qty = cleanNumber(gs.qty);
           const price = cleanNumber(gs.price);
-          cumulativeTotal += qty * price;
+          cumulativeTotal += cleanNumber(gs.amount) || (qty * price);
         }
       });
 
       result.push({
         month: monthLabel,
-        invested: Math.round(cumulativeTotal * 100) / 100,
+        invested: Math.round(cumulativeTotal)
       });
     }
 
@@ -231,48 +277,115 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
   }, [investments, invTimeframe]);
 
   // -------------------------------------------------------------
-  // 4. ASSET ALLOCATION PIE CHART
+  // 4. TOTAL PORTFOLIO VALUATION & PIE CHARTS
   // -------------------------------------------------------------
-  const assetAllocationData = useMemo(() => {
+  const portfolioSummary = useMemo(() => {
     let stocksVal = 0;
     (investments?.Stocks || []).forEach((s: any) => {
-      stocksVal += cleanNumber(s.qty) * (cleanNumber(s.currentPrice) || cleanNumber(s.price));
+      const qty = cleanNumber(s.qty);
+      const price = cleanNumber(s.price);
+      stocksVal += cleanNumber(s.amount) || (qty * price);
     });
 
     let sipVal = 0;
     (investments?.SIP || []).forEach((sip: any) => {
-      sipVal += cleanNumber(sip.currentValue) || cleanNumber(sip.amount);
+      sipVal += cleanNumber(sip.amount);
     });
 
     let goldVal = 0;
     (investments?.GoldSilver || []).forEach((gs: any) => {
-      goldVal += cleanNumber(gs.qty) * (cleanNumber(gs.currentPrice) || cleanNumber(gs.price));
+      const qty = cleanNumber(gs.qty);
+      const price = cleanNumber(gs.price);
+      goldVal += cleanNumber(gs.amount) || (qty * price);
     });
 
-    return [
+    const totalPortfolio = stocksVal + sipVal + goldVal;
+
+    const assetData = [
       { name: 'Stocks', value: Math.round(stocksVal) },
       { name: 'SIP / Mutual Funds', value: Math.round(sipVal) },
-      { name: 'Gold & Silver', value: Math.round(goldVal) },
+      { name: 'Gold & Silver', value: Math.round(goldVal) }
     ].filter((item) => item.value > 0);
-  }, [investments]);
 
-  // -------------------------------------------------------------
-  // 5. STOCKS SECTOR ALLOCATION PIE CHART (Dynamic Grouping)
-  // -------------------------------------------------------------
-  const stockSectorData = useMemo(() => {
     const sectorMap: Record<string, number> = {};
-
     (investments?.Stocks || []).forEach((st: any) => {
       const groupName = st.group?.trim() || 'General';
-      const val = cleanNumber(st.qty) * (cleanNumber(st.currentPrice) || cleanNumber(st.price));
+      const qty = cleanNumber(st.qty);
+      const price = cleanNumber(st.price);
+      const val = cleanNumber(st.amount) || (qty * price);
       sectorMap[groupName] = (sectorMap[groupName] || 0) + val;
     });
 
-    return Object.keys(sectorMap).map((sector) => ({
-      name: sector,
-      value: Math.round(sectorMap[sector]),
+    const stockSectorData = Object.keys(sectorMap).map((sec) => ({
+      name: sec,
+      value: Math.round(sectorMap[sec])
     })).filter((item) => item.value > 0);
+
+    return { totalPortfolio, assetData, stockSectorData };
   }, [investments]);
+
+  // -------------------------------------------------------------
+  // 5. SECTOR-WISE BREAKDOWN & SEARCH FILTER
+  // -------------------------------------------------------------
+  const currentAssetItems = useMemo(() => {
+    return investments?.[activeAssetType] || [];
+  }, [investments, activeAssetType]);
+
+  const uniqueSuggestions = useMemo(() => {
+    const names = new Set<string>();
+    currentAssetItems.forEach((item: any) => {
+      if (item.name) names.add(item.name.trim());
+      if (item.group) names.add(item.group.trim());
+    });
+    const list = Array.from(names);
+    if (!searchQuery.trim()) return list.slice(0, 6);
+    return list.filter((n) => n.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [currentAssetItems, searchQuery]);
+
+  const sectorGroupedData = useMemo(() => {
+    const map: Record<string, { totalAmount: number; totalQty: number; items: any[] }> = {};
+    const query = searchQuery.trim().toLowerCase();
+
+    currentAssetItems.forEach((item: any) => {
+      const nameMatch = item.name?.toLowerCase().includes(query);
+      const groupMatch = item.group?.toLowerCase().includes(query);
+
+      if (query && !nameMatch && !groupMatch) return;
+
+      const groupName = item.group?.trim() || 'General';
+      const qty = cleanNumber(item.qty) || (activeAssetType === 'SIP' ? 1 : 0);
+      const price = cleanNumber(item.price);
+      const amount = cleanNumber(item.amount) || (qty * price);
+
+      if (!map[groupName]) {
+        map[groupName] = { totalAmount: 0, totalQty: 0, items: [] };
+      }
+
+      map[groupName].totalAmount += amount;
+      map[groupName].totalQty += qty;
+      map[groupName].items.push({
+        ...item,
+        calculatedAmount: amount
+      });
+    });
+
+    return Object.entries(map).map(([sector, data]) => ({
+      sector,
+      totalAmount: data.totalAmount,
+      totalQty: data.totalQty,
+      percentage: portfolioSummary.totalPortfolio > 0
+        ? (data.totalAmount / portfolioSummary.totalPortfolio) * 100
+        : 0,
+      items: data.items
+    })).sort((a, b) => b.totalAmount - a.totalAmount);
+  }, [currentAssetItems, searchQuery, portfolioSummary.totalPortfolio, activeAssetType]);
+
+  const toggleSector = (sector: string) => {
+    setExpandedSectors((prev) => ({
+      ...prev,
+      [sector]: !prev[sector]
+    }));
+  };
 
   return (
     <div className="space-y-8">
@@ -294,7 +407,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
               <div className="flex items-center space-x-2 bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">
                 <button
                   onClick={() => setBankIndex((prev) => (prev === 0 ? BANKS.length - 1 : prev - 1))}
-                  className="p-1 hover:bg-slate-200 rounded text-slate-600 transition"
+                  className="p-1 hover:bg-slate-200 rounded text-slate-600 transition cursor-pointer"
                   title="Previous Bank"
                 >
                   <ChevronLeft size={16} />
@@ -304,7 +417,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                 </span>
                 <button
                   onClick={() => setBankIndex((prev) => (prev === BANKS.length - 1 ? 0 : prev + 1))}
-                  className="p-1 hover:bg-slate-200 rounded text-slate-600 transition"
+                  className="p-1 hover:bg-slate-200 rounded text-slate-600 transition cursor-pointer"
                   title="Next Bank"
                 >
                   <ChevronRight size={16} />
@@ -318,7 +431,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} />
                   <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
-                  <Tooltip formatter={(value: number) => [`₹${value.toLocaleString()}`, '']} />
+                  <Tooltip formatter={(value: number) => [formatCurrency(value), '']} />
                   <Legend />
                   <Bar dataKey="credit" name="Credit / Inflow (+)" fill="#10b981" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="cost" name="Cost / Expense (-)" fill="#ef4444" radius={[4, 4, 0, 0]} />
@@ -391,7 +504,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                           <td className="p-2.5 font-medium text-slate-700">{tx.category}</td>
                           <td className="p-2.5 text-slate-500 truncate max-w-[120px]">{tx.reason}</td>
                           <td className="p-2.5 text-right font-bold text-red-600">
-                            ₹{tx.cost.toLocaleString()}
+                            {formatCurrency(tx.cost)}
                           </td>
                         </tr>
                       ))}
@@ -413,7 +526,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
           <h2 className="text-lg font-bold text-slate-800">Investment Portfolio Analytics</h2>
         </div>
 
-        {/* Cumulative Invested Area Chart */}
+        {/* Cumulative Area Chart */}
         <div className="mb-10">
           <div className="flex items-center justify-between mb-4">
             <span className="text-sm font-semibold text-slate-700">Cumulative Invested Value</span>
@@ -421,7 +534,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
             <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
               <button
                 onClick={() => setInvTimeframe('5m')}
-                className={`px-3 py-1 text-xs font-semibold rounded-md transition ${
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
                   invTimeframe === '5m' ? 'bg-white text-emerald-600 shadow-xs' : 'text-slate-600'
                 }`}
               >
@@ -429,7 +542,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
               </button>
               <button
                 onClick={() => setInvTimeframe('1y')}
-                className={`px-3 py-1 text-xs font-semibold rounded-md transition ${
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
                   invTimeframe === '1y' ? 'bg-white text-emerald-600 shadow-xs' : 'text-slate-600'
                 }`}
               >
@@ -437,7 +550,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
               </button>
               <button
                 onClick={() => setInvTimeframe('all')}
-                className={`px-3 py-1 text-xs font-semibold rounded-md transition ${
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
                   invTimeframe === 'all' ? 'bg-white text-emerald-600 shadow-xs' : 'text-slate-600'
                 }`}
               >
@@ -458,7 +571,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} />
                 <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
-                <Tooltip formatter={(val: number) => [`₹${val.toLocaleString()}`, 'Invested Capital']} />
+                <Tooltip formatter={(val: number) => [formatCurrency(val), 'Invested Capital']} />
                 <Area type="monotone" dataKey="invested" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#invGradient)" />
               </AreaChart>
             </ResponsiveContainer>
@@ -466,24 +579,23 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
         </div>
 
         {/* Allocation Pie Charts */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Asset Allocation Pie */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10 pb-8 border-b border-slate-100">
           <div className="flex flex-col items-center">
             <span className="text-sm font-semibold text-slate-700 mb-4 self-start flex items-center gap-1.5">
               <PieIcon size={16} className="text-indigo-500" /> Asset Class Allocation
             </span>
             <div className="h-64 w-full">
-              {assetAllocationData.length === 0 ? (
+              {portfolioSummary.assetData.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-xs text-slate-400">No asset data available</div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={assetAllocationData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={4} dataKey="value">
-                      {assetAllocationData.map((_, idx) => (
+                    <Pie data={portfolioSummary.assetData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={4} dataKey="value">
+                      {portfolioSummary.assetData.map((_, idx) => (
                         <Cell key={`asset-cell-${idx}`} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(val: number) => [`₹${val.toLocaleString()}`, 'Valuation']} />
+                    <Tooltip formatter={(val: number) => [formatCurrency(val), 'Invested']} />
                     <Legend />
                   </PieChart>
                 </ResponsiveContainer>
@@ -491,29 +603,240 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
             </div>
           </div>
 
-          {/* Stocks Sector Allocation Pie */}
           <div className="flex flex-col items-center">
             <span className="text-sm font-semibold text-slate-700 mb-4 self-start flex items-center gap-1.5">
               <PieIcon size={16} className="text-indigo-500" /> Stocks Sector Allocation
             </span>
             <div className="h-64 w-full">
-              {stockSectorData.length === 0 ? (
+              {portfolioSummary.stockSectorData.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-xs text-slate-400">No stock sector data available</div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={stockSectorData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={4} dataKey="value">
-                      {stockSectorData.map((_, idx) => (
+                    <Pie data={portfolioSummary.stockSectorData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={4} dataKey="value">
+                      {portfolioSummary.stockSectorData.map((_, idx) => (
                         <Cell key={`sector-cell-${idx}`} fill={PIE_COLORS[(idx + 2) % PIE_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(val: number) => [`₹${val.toLocaleString()}`, 'Valuation']} />
+                    <Tooltip formatter={(val: number) => [formatCurrency(val), 'Invested']} />
                     <Legend />
                   </PieChart>
                 </ResponsiveContainer>
               )}
             </div>
           </div>
+        </div>
+
+        {/* ========================================================= */}
+        {/* 3. SECTOR-WISE ASSET BREAKDOWN & EXPANDABLE ACCORDION     */}
+        {/* ========================================================= */}
+        <div>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <div>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                Sector-Wise Asset Breakdown
+              </span>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Total Portfolio Asset Allocation Percentage (%) & Invested Amounts
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Inline Search Filter */}
+              <div className="relative" ref={filterContainerRef}>
+                {!isFilterOpen ? (
+                  <button
+                    onClick={() => {
+                      setIsFilterOpen(true);
+                      setShowDropdown(true);
+                    }}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-semibold transition cursor-pointer ${
+                      searchQuery
+                        ? 'bg-indigo-50 border-indigo-200 text-indigo-600'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <FilterIcon size={13} />
+                    <span>{searchQuery ? `Filter: ${searchQuery}` : 'Filter / Search'}</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center bg-white border border-indigo-300 rounded-md shadow-xs px-2 py-0.5 w-52 sm:w-60">
+                    <Search size={13} className="text-slate-400 mr-1.5 shrink-0" />
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      placeholder={`Search ${activeAssetType}...`}
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        setShowDropdown(true);
+                      }}
+                      onFocus={() => setShowDropdown(true)}
+                      className="w-full text-xs text-slate-800 focus:outline-none bg-transparent"
+                    />
+                    <button
+                      onClick={() => {
+                        setSearchQuery('');
+                        setIsFilterOpen(false);
+                        setShowDropdown(false);
+                      }}
+                      className="text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Search Suggestions Dropdown */}
+                {isFilterOpen && showDropdown && (
+                  <div className="absolute right-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-lg shadow-lg z-50 p-2">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1">
+                      Available Suggestions
+                    </div>
+                    {uniqueSuggestions.length === 0 ? (
+                      <div className="px-2 py-2 text-xs text-slate-400">No matching assets found</div>
+                    ) : (
+                      <div className="space-y-0.5 mt-1 max-h-48 overflow-y-auto">
+                        {uniqueSuggestions.map((item) => (
+                          <button
+                            key={item}
+                            type="button"
+                            onClick={() => {
+                              setSearchQuery(item);
+                              setShowDropdown(false);
+                            }}
+                            className={`w-full text-left px-2.5 py-1.5 rounded-md text-xs transition cursor-pointer flex items-center justify-between ${
+                              searchQuery.toLowerCase() === item.toLowerCase()
+                                ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                                : 'text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span>{item}</span>
+                            <Tag size={11} className="text-slate-400" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Asset Class Switcher (< and > Controls) */}
+              <div className="flex items-center space-x-2 bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">
+                <button
+                  onClick={() => setAssetTabIndex((prev) => (prev === 0 ? ASSET_TABS.length - 1 : prev - 1))}
+                  className="p-1 hover:bg-slate-200 rounded text-slate-600 transition cursor-pointer"
+                  title="Previous Asset Class"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="text-xs font-bold text-indigo-600 min-w-[130px] text-center">
+                  {ASSET_TABS[assetTabIndex].label}
+                </span>
+                <button
+                  onClick={() => setAssetTabIndex((prev) => (prev === ASSET_TABS.length - 1 ? 0 : prev + 1))}
+                  className="p-1 hover:bg-slate-200 rounded text-slate-600 transition cursor-pointer"
+                  title="Next Asset Class"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Sector Breakdown List / Accordion */}
+          {sectorGroupedData.length === 0 ? (
+            <div className="text-center py-10 border border-slate-200 rounded-xl bg-slate-50/50 text-slate-400 text-xs font-medium">
+              No asset records found matching your filter.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {sectorGroupedData.map((sec) => {
+                const isExpanded = !!expandedSectors[sec.sector];
+                return (
+                  <div
+                    key={sec.sector}
+                    className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs transition-all"
+                  >
+                    {/* Sector Summary Row */}
+                    <div
+                      onClick={() => toggleSector(sec.sector)}
+                      className="flex items-center justify-between p-4 bg-slate-50/60 hover:bg-slate-100/60 cursor-pointer transition select-none"
+                    >
+                      <div className="flex items-center space-x-3">
+                        <button
+                          type="button"
+                          className="w-6 h-6 flex items-center justify-center rounded-md bg-white border border-slate-200 text-slate-600 shadow-2xs"
+                        >
+                          {isExpanded ? <Minus size={13} /> : <Plus size={13} />}
+                        </button>
+                        <div>
+                          <span className="text-xs font-bold text-slate-800">{sec.sector}</span>
+                          <span className="text-[10px] text-slate-400 font-medium ml-2">
+                            ({sec.items.length} {sec.items.length === 1 ? 'record' : 'records'})
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-6">
+                        <div className="text-right">
+                          <span className="text-xs font-mono font-bold text-slate-900">
+                            {formatCurrency(sec.totalAmount)}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono block">
+                            Qty: {sec.totalQty}
+                          </span>
+                        </div>
+                        <div className="w-16 text-right">
+                          <span className="text-xs font-bold font-mono text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded">
+                            {sec.percentage.toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Expandable Company Holdings Table */}
+                    {isExpanded && (
+                      <div className="border-t border-slate-200 bg-white">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead>
+                            <tr className="bg-slate-100/70 text-slate-500 font-semibold border-b border-slate-200 text-[10px] uppercase font-mono">
+                              <th className="p-3">Date</th>
+                              <th className="p-3">Asset / Company Name</th>
+                              {activeAssetType !== 'SIP' && <th className="p-3 text-right">Price</th>}
+                              {activeAssetType !== 'SIP' && <th className="p-3 text-right">Quantity</th>}
+                              <th className="p-3 text-right">Invested Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {sec.items.map((item, idx) => (
+                              <tr key={idx} className="hover:bg-slate-50/70">
+                                <td className="p-3 font-mono text-slate-500 whitespace-nowrap">{item.date}</td>
+                                <td className="p-3 font-medium text-slate-800">{item.name}</td>
+                                {activeAssetType !== 'SIP' && (
+                                  <td className="p-3 text-right font-mono text-slate-600">
+                                    {formatCurrency(cleanNumber(item.price))}
+                                  </td>
+                                )}
+                                {activeAssetType !== 'SIP' && (
+                                  <td className="p-3 text-right font-mono text-slate-600">
+                                    {cleanNumber(item.qty)}
+                                  </td>
+                                )}
+                                <td className="p-3 text-right font-mono font-bold text-slate-900">
+                                  {formatCurrency(item.calculatedAmount)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
