@@ -53,6 +53,45 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
+/**
+ * Normalizes any date string (YYYY-MM-DD, ISO, DD-MM-YYYY) into strict DD-MM-YYYY
+ */
+function toDDMMYYYY(dateStr?: string): string {
+  if (!dateStr || typeof dateStr !== 'string') return '';
+  const clean = dateStr.trim().split('T')[0];
+  const parts = clean.split(/[-/]/);
+
+  if (parts.length === 3) {
+    // Already DD-MM-YYYY
+    if (parts[2].length === 4) {
+      const day = parts[0].padStart(2, '0');
+      const month = parts[1].padStart(2, '0');
+      const year = parts[2];
+      return `${day}-${month}-${year}`;
+    }
+    // Convert YYYY-MM-DD to DD-MM-YYYY
+    if (parts[0].length === 4) {
+      const year = parts[0];
+      const month = parts[1].padStart(2, '0');
+      const day = parts[2].padStart(2, '0');
+      return `${day}-${month}-${year}`;
+    }
+  }
+
+  const parsed = new Date(dateStr);
+  if (!isNaN(parsed.getTime())) {
+    const day = String(parsed.getDate()).padStart(2, '0');
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const year = parsed.getFullYear();
+    return `${day}-${month}-${year}`;
+  }
+
+  return dateStr;
+}
+
+/**
+ * Extracts date tokens for filtering and chronologic comparisons
+ */
 function parseTxDate(dateStr?: string): { year: number; month: number; day: number } | null {
   if (!dateStr || typeof dateStr !== 'string') return null;
   const clean = dateStr.trim().split('T')[0];
@@ -97,20 +136,15 @@ function formatCurrency(val: number): string {
 }
 
 export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
-  // --- Expense Filter State ---
   const [bankIndex, setBankIndex] = useState<number>(0);
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [topLimit, setTopLimit] = useState<number>(5);
 
-  // --- Investment Trend State ---
   const [invTimeframe, setInvTimeframe] = useState<'5m' | '1y' | 'all'>('5m');
-
-  // --- Asset Navigation & Accordion State ---
   const [assetTabIndex, setAssetTabIndex] = useState<number>(0);
   const [expandedSectors, setExpandedSectors] = useState<Record<string, boolean>>({});
 
-  // --- Inline Search Filter State ---
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showDropdown, setShowDropdown] = useState<boolean>(false);
@@ -119,7 +153,6 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
 
   const activeAssetType = ASSET_TABS[assetTabIndex].key;
 
-  // Handle outside click for search suggestions
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -145,7 +178,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
   }, []);
 
   // -------------------------------------------------------------
-  // 1. EXPENSE CASH FLOW (Prev 5 Months Window)
+  // 1. EXPENSE CASH FLOW (Prev 5 Months Rolling Window)
   // -------------------------------------------------------------
   const cashFlowData = useMemo(() => {
     const selectedBank = BANKS[bankIndex];
@@ -193,7 +226,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
   }, [expenses, bankIndex]);
 
   // -------------------------------------------------------------
-  // 2. TOP EXPENSES BREAKDOWN
+  // 2. TOP EXPENSES BREAKDOWN (Strict DD-MM-YYYY display)
   // -------------------------------------------------------------
   const topExpensesList = useMemo(() => {
     const allTx: { bank: string; date: string; category: string; reason: string; cost: number }[] = [];
@@ -208,7 +241,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
         if (parsed && parsed.year === selectedYear && parsed.month === selectedMonth) {
           allTx.push({
             bank: b,
-            date: tx.date,
+            date: toDDMMYYYY(tx.date),
             category: tx.category?.trim() || 'General',
             reason: tx.reason?.trim() || 'Expense',
             cost: cost
@@ -277,7 +310,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
   }, [investments, invTimeframe]);
 
   // -------------------------------------------------------------
-  // 4. TOTAL PORTFOLIO VALUATION & PIE CHARTS
+  // 4. PORTFOLIO ALLOCATION PIE CHARTS
   // -------------------------------------------------------------
   const portfolioSummary = useMemo(() => {
     let stocksVal = 0;
@@ -325,7 +358,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
   }, [investments]);
 
   // -------------------------------------------------------------
-  // 5. SECTOR-WISE BREAKDOWN & SEARCH FILTER
+  // 5. SECTOR BREAKDOWN WITH CLUBBED/GROUPED COMPANIES
   // -------------------------------------------------------------
   const currentAssetItems = useMemo(() => {
     return investments?.[activeAssetType] || [];
@@ -343,7 +376,17 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
   }, [currentAssetItems, searchQuery]);
 
   const sectorGroupedData = useMemo(() => {
-    const map: Record<string, { totalAmount: number; totalQty: number; items: any[] }> = {};
+    const sectorMap: Record<string, {
+      totalAmount: number;
+      totalQty: number;
+      companyMap: Record<string, {
+        name: string;
+        latestDate: string;
+        totalQty: number;
+        totalInvested: number;
+      }>
+    }> = {};
+
     const query = searchQuery.trim().toLowerCase();
 
     currentAssetItems.forEach((item: any) => {
@@ -353,31 +396,53 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
       if (query && !nameMatch && !groupMatch) return;
 
       const groupName = item.group?.trim() || 'General';
+      const companyName = item.name?.trim() || 'Asset';
       const qty = cleanNumber(item.qty) || (activeAssetType === 'SIP' ? 1 : 0);
       const price = cleanNumber(item.price);
       const amount = cleanNumber(item.amount) || (qty * price);
+      const displayDate = toDDMMYYYY(item.date);
 
-      if (!map[groupName]) {
-        map[groupName] = { totalAmount: 0, totalQty: 0, items: [] };
+      if (!sectorMap[groupName]) {
+        sectorMap[groupName] = { totalAmount: 0, totalQty: 0, companyMap: {} };
       }
 
-      map[groupName].totalAmount += amount;
-      map[groupName].totalQty += qty;
-      map[groupName].items.push({
-        ...item,
-        calculatedAmount: amount
-      });
+      sectorMap[groupName].totalAmount += amount;
+      sectorMap[groupName].totalQty += qty;
+
+      if (!sectorMap[groupName].companyMap[companyName]) {
+        sectorMap[groupName].companyMap[companyName] = {
+          name: companyName,
+          latestDate: displayDate,
+          totalQty: 0,
+          totalInvested: 0
+        };
+      }
+
+      const comp = sectorMap[groupName].companyMap[companyName];
+      comp.totalQty += qty;
+      comp.totalInvested += amount;
+      comp.latestDate = displayDate;
     });
 
-    return Object.entries(map).map(([sector, data]) => ({
-      sector,
-      totalAmount: data.totalAmount,
-      totalQty: data.totalQty,
-      percentage: portfolioSummary.totalPortfolio > 0
-        ? (data.totalAmount / portfolioSummary.totalPortfolio) * 100
-        : 0,
-      items: data.items
-    })).sort((a, b) => b.totalAmount - a.totalAmount);
+    return Object.entries(sectorMap).map(([sector, data]) => {
+      const clubbedCompanies = Object.values(data.companyMap).map((c) => ({
+        name: c.name,
+        date: c.latestDate,
+        qty: c.totalQty,
+        avgPrice: c.totalQty > 0 ? c.totalInvested / c.totalQty : c.totalInvested,
+        invested: c.totalInvested
+      })).sort((a, b) => b.invested - a.invested);
+
+      return {
+        sector,
+        totalAmount: data.totalAmount,
+        totalQty: data.totalQty,
+        percentage: portfolioSummary.totalPortfolio > 0
+          ? (data.totalAmount / portfolioSummary.totalPortfolio) * 100
+          : 0,
+        clubbedCompanies
+      };
+    }).sort((a, b) => b.totalAmount - a.totalAmount);
   }, [currentAssetItems, searchQuery, portfolioSummary.totalPortfolio, activeAssetType]);
 
   const toggleSector = (sector: string) => {
@@ -497,7 +562,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                     <tbody className="divide-y divide-slate-100 bg-white">
                       {topExpensesList.map((tx, idx) => (
                         <tr key={idx} className="hover:bg-slate-50">
-                          <td className="p-2.5 text-slate-500 whitespace-nowrap">
+                          <td className="p-2.5 font-mono text-slate-500 whitespace-nowrap">
                             {tx.date}<br />
                             <span className="text-[10px] text-indigo-500 font-medium">{tx.bank}</span>
                           </td>
@@ -628,7 +693,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
         </div>
 
         {/* ========================================================= */}
-        {/* 3. SECTOR-WISE ASSET BREAKDOWN & EXPANDABLE ACCORDION     */}
+        {/* 3. SECTOR-WISE BREAKDOWN (CEMENT COLOR & GROUPED ASSETS)  */}
         {/* ========================================================= */}
         <div>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
@@ -687,7 +752,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                   </div>
                 )}
 
-                {/* Search Suggestions Dropdown */}
+                {/* Suggestions Dropdown */}
                 {isFilterOpen && showDropdown && (
                   <div className="absolute right-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-lg shadow-lg z-50 p-2">
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1">
@@ -721,7 +786,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                 )}
               </div>
 
-              {/* Asset Class Switcher (< and > Controls) */}
+              {/* Asset Class Switcher */}
               <div className="flex items-center space-x-2 bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">
                 <button
                   onClick={() => setAssetTabIndex((prev) => (prev === 0 ? ASSET_TABS.length - 1 : prev - 1))}
@@ -744,7 +809,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
             </div>
           </div>
 
-          {/* Sector Breakdown List / Accordion */}
+          {/* Sector Breakdown List */}
           {sectorGroupedData.length === 0 ? (
             <div className="text-center py-10 border border-slate-200 rounded-xl bg-slate-50/50 text-slate-400 text-xs font-medium">
               No asset records found matching your filter.
@@ -758,7 +823,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                     key={sec.sector}
                     className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs transition-all"
                   >
-                    {/* Sector Summary Row */}
+                    {/* Sector Header Row */}
                     <div
                       onClick={() => toggleSector(sec.sector)}
                       className="flex items-center justify-between p-4 bg-slate-50/60 hover:bg-slate-100/60 cursor-pointer transition select-none"
@@ -773,7 +838,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                         <div>
                           <span className="text-xs font-bold text-slate-800">{sec.sector}</span>
                           <span className="text-[10px] text-slate-400 font-medium ml-2">
-                            ({sec.items.length} {sec.items.length === 1 ? 'record' : 'records'})
+                            ({sec.clubbedCompanies.length} {sec.clubbedCompanies.length === 1 ? 'asset' : 'assets'})
                           </span>
                         </div>
                       </div>
@@ -787,15 +852,16 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                             Qty: {sec.totalQty}
                           </span>
                         </div>
+                        {/* Cement/Slate Colored Percentage Badge */}
                         <div className="w-16 text-right">
-                          <span className="text-xs font-bold font-mono text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded">
+                          <span className="text-xs font-bold font-mono text-slate-700 bg-slate-200/70 border border-slate-300 px-2 py-0.5 rounded">
                             {sec.percentage.toFixed(1)}%
                           </span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Expandable Company Holdings Table */}
+                    {/* Clubbed Holdings Table */}
                     {isExpanded && (
                       <div className="border-t border-slate-200 bg-white">
                         <table className="w-full text-left border-collapse text-xs">
@@ -803,28 +869,28 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                             <tr className="bg-slate-100/70 text-slate-500 font-semibold border-b border-slate-200 text-[10px] uppercase font-mono">
                               <th className="p-3">Date</th>
                               <th className="p-3">Asset / Company Name</th>
-                              {activeAssetType !== 'SIP' && <th className="p-3 text-right">Price</th>}
-                              {activeAssetType !== 'SIP' && <th className="p-3 text-right">Quantity</th>}
+                              {activeAssetType !== 'SIP' && <th className="p-3 text-right">Avg Price</th>}
+                              {activeAssetType !== 'SIP' && <th className="p-3 text-right">Total Qty</th>}
                               <th className="p-3 text-right">Invested Amount</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {sec.items.map((item, idx) => (
+                            {sec.clubbedCompanies.map((item, idx) => (
                               <tr key={idx} className="hover:bg-slate-50/70">
                                 <td className="p-3 font-mono text-slate-500 whitespace-nowrap">{item.date}</td>
                                 <td className="p-3 font-medium text-slate-800">{item.name}</td>
                                 {activeAssetType !== 'SIP' && (
                                   <td className="p-3 text-right font-mono text-slate-600">
-                                    {formatCurrency(cleanNumber(item.price))}
+                                    {formatCurrency(cleanNumber(item.avgPrice))}
                                   </td>
                                 )}
                                 {activeAssetType !== 'SIP' && (
-                                  <td className="p-3 text-right font-mono text-slate-600">
-                                    {cleanNumber(item.qty)}
+                                  <td className="p-3 text-right font-mono text-slate-600 font-semibold">
+                                    {item.qty}
                                   </td>
                                 )}
                                 <td className="p-3 text-right font-mono font-bold text-slate-900">
-                                  {formatCurrency(item.calculatedAmount)}
+                                  {formatCurrency(item.invested)}
                                 </td>
                               </tr>
                             ))}
