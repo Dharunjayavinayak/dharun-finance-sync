@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { AppHeader } from "./components/AppHeader";
 import { DashboardStats } from "./components/DashboardStats";
 import { ExpenseModule } from "./components/ExpenseModule";
@@ -11,7 +11,7 @@ import { InvestmentModule } from "./components/InvestmentModule";
 import { AnalyticsModule } from "./components/AnalyticsModule";
 import { DEFAULT_SYNC_STATE } from "./data";
 import { SyncState, BankName, AssetClass, Transaction } from "./types";
-import { Wallet, LineChart, BarChart3 } from "lucide-react";
+import { Wallet, LineChart, BarChart3, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 
 const APPS_SCRIPT_URL = 'YOUR_DEPLOYED_WEB_APP_URL';
 
@@ -21,6 +21,12 @@ function cleanNumber(val: any): number {
   const sanitized = String(val).replace(/[^0-9.-]+/g, '');
   const num = parseFloat(sanitized);
   return isNaN(num) ? 0 : num;
+}
+
+interface QueueItem {
+  id: string;
+  payload: any;
+  label: string;
 }
 
 export default function App() {
@@ -47,6 +53,16 @@ export default function App() {
 
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "success" | "error">("idle");
   const [syncError, setSyncError] = useState<string | null>(null);
+
+  // Live Event Notification State
+  const [liveToast, setLiveToast] = useState<{
+    type: "progress" | "success" | "error";
+    message: string;
+  } | null>(null);
+
+  // Sequential Asynchronous Request Queue
+  const queueRef = useRef<QueueItem[]>([]);
+  const isProcessingRef = useRef<boolean>(false);
 
   useEffect(() => {
     localStorage.setItem("finsync_app_state", JSON.stringify(state));
@@ -183,42 +199,81 @@ export default function App() {
     }
   };
 
-  const sendActionToApi = async (payload: any) => {
-    const isConfigured = scriptUrl && scriptUrl !== "YOUR_DEPLOYED_WEB_APP_URL" && scriptUrl.trim() !== "";
-    if (!isConfigured) {
-      console.log("No deployed Web App connected. Change saved locally.");
-      return;
-    }
+  // Process the request queue sequentially
+  const processQueue = async () => {
+    if (isProcessingRef.current || queueRef.current.length === 0) return;
+    isProcessingRef.current = true;
 
-    try {
-      setSyncStatus("syncing");
-      setSyncError(null);
+    while (queueRef.current.length > 0) {
+      const currentTask = queueRef.current[0];
+      const remainingCount = queueRef.current.length;
 
-      const response = await fetch(scriptUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify(payload),
+      setLiveToast({
+        type: "progress",
+        message: remainingCount > 1 
+          ? `Adding transaction (${remainingCount} in queue)...` 
+          : `${currentTask.label} in progress...`
       });
 
-      if (!response.ok) {
-        throw new Error(`POST action failed: ${response.statusText}`);
-      }
+      const isConfigured = scriptUrl && scriptUrl !== "YOUR_DEPLOYED_WEB_APP_URL" && scriptUrl.trim() !== "";
+      if (isConfigured) {
+        try {
+          const response = await fetch(scriptUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "text/plain;charset=utf-8",
+            },
+            body: JSON.stringify(currentTask.payload),
+          });
 
-      await response.json();
-      await triggerSync(scriptUrl);
-    } catch (err: any) {
-      console.error("Action API synchronization failed", err);
-      setSyncStatus("error");
-      setSyncError(`Action Sync Failed: ${err.message}.`);
+          if (!response.ok) {
+            throw new Error(`POST action failed: ${response.statusText}`);
+          }
+
+          await response.json();
+          queueRef.current.shift();
+
+          if (queueRef.current.length === 0) {
+            setLiveToast({ type: "success", message: "Transaction added successfully!" });
+            setTimeout(() => setLiveToast(null), 3500);
+            await triggerSync(scriptUrl);
+          }
+        } catch (err: any) {
+          queueRef.current.shift();
+          console.error("Action API synchronization failed", err);
+          setLiveToast({ type: "error", message: `Action failed: ${err.message}` });
+          setTimeout(() => setLiveToast(null), 4000);
+        }
+      } else {
+        queueRef.current.shift();
+        if (queueRef.current.length === 0) {
+          setLiveToast({ type: "success", message: "Saved locally." });
+          setTimeout(() => setLiveToast(null), 3000);
+        }
+      }
     }
+
+    isProcessingRef.current = false;
+  };
+
+  const enqueueAction = (payload: any, label: string) => {
+    queueRef.current.push({
+      id: Math.random().toString(36).substring(2, 9),
+      payload,
+      label,
+    });
+    processQueue();
   };
 
   const handleAddTransaction = (bank: BankName, tx: Omit<Transaction, "id">) => {
+    const currentList = state.expenses[bank] || [];
+    const prevBalance = currentList.length > 0 ? (currentList[currentList.length - 1].balance || 0) : 0;
+    const computedBalance = prevBalance + (cleanNumber(tx.credit) || 0) - (cleanNumber(tx.cost) || 0);
+
     const newTx: Transaction = {
       ...tx,
       id: `${bank.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+      balance: computedBalance,
     };
 
     setState((prev) => {
@@ -229,7 +284,7 @@ export default function App() {
       };
     });
 
-    sendActionToApi({
+    enqueueAction({
       action: "add",
       sheetName: bank,
       date: newTx.date,
@@ -237,7 +292,7 @@ export default function App() {
       reason: newTx.reason,
       credit: newTx.credit,
       cost: newTx.cost,
-    });
+    }, "Adding transaction");
   };
 
   const handleDeleteTransaction = (bank: BankName, tx: Transaction) => {
@@ -249,12 +304,12 @@ export default function App() {
       };
     });
 
-    sendActionToApi({
+    enqueueAction({
       action: "delete",
       sheetName: bank,
       date: tx.date,
       reason: tx.reason,
-    });
+    }, "Deleting transaction");
   };
 
   const handleAddAsset = (assetClass: AssetClass, asset: any) => {
@@ -286,7 +341,7 @@ export default function App() {
       addPayload.currentPrice = newAsset.currentPrice;
     }
 
-    sendActionToApi(addPayload);
+    enqueueAction(addPayload, "Adding asset");
   };
 
   const handleDeleteAsset = (assetClass: AssetClass, asset: { date: string; name: string }) => {
@@ -299,16 +354,34 @@ export default function App() {
       };
     });
 
-    sendActionToApi({
+    enqueueAction({
       action: "delete",
       sheetName: assetClass,
       date: asset.date,
       name: asset.name,
-    });
+    }, "Deleting asset");
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/70 text-slate-800 font-sans antialiased" id="main-scroller">
+    <div className="min-h-screen bg-slate-50/70 text-slate-800 font-sans antialiased relative" id="main-scroller">
+      {/* Live Event Notification Banner */}
+      {liveToast && (
+        <div className="fixed bottom-5 right-5 z-50 transition-all duration-200">
+          <div className={`flex items-center gap-2.5 px-4 py-3 rounded-lg shadow-lg border text-xs font-semibold ${
+            liveToast.type === "progress"
+              ? "bg-slate-900 text-white border-slate-700"
+              : liveToast.type === "success"
+              ? "bg-emerald-600 text-white border-emerald-500"
+              : "bg-rose-600 text-white border-rose-500"
+          }`}>
+            {liveToast.type === "progress" && <Loader2 size={15} className="animate-spin text-indigo-400" />}
+            {liveToast.type === "success" && <CheckCircle2 size={15} className="text-white" />}
+            {liveToast.type === "error" && <AlertCircle size={15} className="text-white" />}
+            <span>{liveToast.message}</span>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto px-4 py-8 md:px-6">
         <AppHeader
           globalSyncTime={state.globalSyncTime}

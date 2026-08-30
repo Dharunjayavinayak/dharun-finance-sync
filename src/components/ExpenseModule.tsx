@@ -158,13 +158,20 @@ export const ExpenseModule: React.FC<ExpenseModuleProps> = ({
   );
 
   // Enforce DD-MM-YYYY on display and exact reverse-chronological order
+  // Enforce DD-MM-YYYY on display and exact reverse-chronological order with index tie-breaker
   const chronologicalReversed = useMemo(() => {
-    return [...currentBankTransactions]
-      .map((tx) => ({
+    return currentBankTransactions
+      .map((tx, originalIndex) => ({
         ...tx,
+        originalIndex, // Track sheet row sequence
         date: toStandardDisplayDate(tx.date),
       }))
-      .sort((a, b) => getTimestampFromDateStr(b.date) - getTimestampFromDateStr(a.date));
+      .sort((a, b) => {
+        const timeDiff = getTimestampFromDateStr(b.date) - getTimestampFromDateStr(a.date);
+        if (timeDiff !== 0) return timeDiff;
+        // If dates are identical, the later sheet entry comes first (latest balance on top)
+        return b.originalIndex - a.originalIndex;
+      });
   }, [currentBankTransactions]);
 
   // Apply Filter: searches across All Time if a category query exists
