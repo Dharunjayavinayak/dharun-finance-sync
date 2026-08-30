@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Trash2, Plus, Calendar, FileText, IndianRupee, Layers } from "lucide-react";
 import { InvestmentData } from "../types";
@@ -13,59 +13,78 @@ interface InvestmentModuleProps {
 }
 
 /**
- * Normalizes any date to strict DD-MM-YYYY format
+ * STRICT DD-MM-YYYY FORMATTER
+ * Converts any date format (YYYY-MM-DD, ISO, or DD-MM-YYYY) into DD-MM-YYYY without locale shifts.
  */
-function toStandardDisplayDate(dateStr?: string): string {
-  if (!dateStr || typeof dateStr !== "string") return "";
-  const clean = dateStr.trim().split("T")[0];
+function toStrictDDMMYYYY(dateStr?: any): string {
+  if (!dateStr) return "";
+  const clean = String(dateStr).trim().split("T")[0];
   const parts = clean.split(/[-/]/);
 
   if (parts.length === 3) {
-    // If format is DD-MM-YYYY
+    // Already in DD-MM-YYYY format (e.g. 03-08-2026)
     if (parts[2].length === 4) {
-      const day = parts[0].padStart(2, "0");
-      const month = parts[1].padStart(2, "0");
-      const year = parts[2];
-      return `${day}-${month}-${year}`;
+      const d = parts[0].padStart(2, "0");
+      const m = parts[1].padStart(2, "0");
+      const y = parts[2];
+      return `${d}-${m}-${y}`;
     }
-    // If format is YYYY-MM-DD
+    // In YYYY-MM-DD format from HTML date picker (e.g. 2026-08-03)
     if (parts[0].length === 4) {
-      const year = parts[0];
-      const month = parts[1].padStart(2, "0");
-      const day = parts[2].padStart(2, "0");
-      return `${day}-${month}-${year}`;
+      const y = parts[0];
+      const m = parts[1].padStart(2, "0");
+      const d = parts[2].padStart(2, "0");
+      return `${d}-${m}-${y}`;
     }
   }
 
-  const parsed = new Date(dateStr);
-  if (!isNaN(parsed.getTime())) {
-    const day = String(parsed.getDate()).padStart(2, "0");
-    const month = String(parsed.getMonth() + 1).padStart(2, "0");
-    const year = parsed.getFullYear();
-    return `${day}-${month}-${year}`;
+  // Fallback for native Date object string
+  const dObj = new Date(dateStr);
+  if (!isNaN(dObj.getTime())) {
+    const d = String(dObj.getDate()).padStart(2, "0");
+    const m = String(dObj.getMonth() + 1).padStart(2, "0");
+    const y = dObj.getFullYear();
+    return `${d}-${m}-${y}`;
   }
 
-  return dateStr;
+  return clean;
 }
 
 /**
- * Parses date for chronological sorting
+ * EXACT NUMERICAL TIMESTAMP PARSER FOR DD-MM-YYYY
+ * Compares pure Year, Month, Day numbers to eliminate US-locale date inversions.
  */
-function getTimestamp(dateStr?: string): number {
+function getStrictTimestamp(dateStr?: string): number {
   if (!dateStr) return 0;
-  const clean = dateStr.trim().split("T")[0];
+  const clean = String(dateStr).trim().split("T")[0];
   const parts = clean.split(/[-/]/);
 
   if (parts.length === 3) {
+    // DD-MM-YYYY
     if (parts[2].length === 4) {
-      return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0])).getTime();
+      const day = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const year = parseInt(parts[2], 10);
+      return new Date(year, month, day).getTime();
     }
+    // YYYY-MM-DD
     if (parts[0].length === 4) {
-      return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])).getTime();
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      return new Date(year, month, day).getTime();
     }
   }
 
   return new Date(dateStr).getTime() || 0;
+}
+
+function cleanNumber(val: any): number {
+  if (typeof val === "number") return isNaN(val) ? 0 : val;
+  if (!val) return 0;
+  const sanitized = String(val).replace(/[^0-9.-]+/g, "");
+  const num = parseFloat(sanitized);
+  return isNaN(num) ? 0 : num;
 }
 
 export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
@@ -85,26 +104,35 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
   const [amount, setAmount] = useState("");
   const [formError, setFormError] = useState("");
 
-  const tabs: InvestmentType[] = ["Stocks", "SIP", "GoldSilver"];
+  const tabs: { key: InvestmentType; label: string }[] = [
+    { key: "Stocks", label: "Stocks" },
+    { key: "SIP", label: "SIP" },
+    { key: "GoldSilver", label: "Gold & Silver" },
+  ];
+
   const currentItems: any[] = investments[selectedTab] || [];
 
-  const dynamicGroups = Array.from(
-    new Set(currentItems.map((item) => item.group).filter(Boolean))
-  );
-  const dynamicNames = Array.from(
-    new Set(currentItems.map((item) => item.name).filter(Boolean))
-  );
+  const dynamicGroups = useMemo(() => {
+    return Array.from(new Set(currentItems.map((item) => item.group).filter(Boolean)));
+  }, [currentItems]);
 
-  // Standardize dates on display and sort chronologically
-  const chronologicalReversed = [...currentItems]
-    .map((item) => ({
-      ...item,
-      date: toStandardDisplayDate(item.date),
-    }))
-    .sort((a, b) => getTimestamp(b.date) - getTimestamp(a.date));
+  const dynamicNames = useMemo(() => {
+    return Array.from(new Set(currentItems.map((item) => item.name).filter(Boolean)));
+  }, [currentItems]);
 
-  const displayItems =
-    viewLimit === "all" ? chronologicalReversed : chronologicalReversed.slice(0, viewLimit);
+  // Normalize dates to DD-MM-YYYY and sort latest date at the top
+  const chronologicalReversed = useMemo(() => {
+    return [...currentItems]
+      .map((item) => ({
+        ...item,
+        date: toStrictDDMMYYYY(item.date),
+      }))
+      .sort((a, b) => getStrictTimestamp(b.date) - getStrictTimestamp(a.date));
+  }, [currentItems]);
+
+  const displayItems = useMemo(() => {
+    return viewLimit === "all" ? chronologicalReversed : chronologicalReversed.slice(0, viewLimit);
+  }, [chronologicalReversed, viewLimit]);
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,17 +150,17 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
       return;
     }
 
-    // Convert date input directly to DD-MM-YYYY
-    const formattedDate = toStandardDisplayDate(dateInput);
+    // Force date directly to DD-MM-YYYY string
+    const finalFormattedDate = toStrictDDMMYYYY(dateInput);
 
     if (selectedTab === "SIP") {
-      const amtVal = parseFloat(amount) || 0;
+      const amtVal = cleanNumber(amount);
       if (amtVal <= 0) {
         setFormError("Amount must be greater than 0");
         return;
       }
       onAddAsset("SIP", {
-        date: formattedDate,
+        date: finalFormattedDate,
         group: trimmedGroup,
         name: trimmedName,
         amount: amtVal,
@@ -141,14 +169,14 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
         currentPrice: amtVal,
       });
     } else {
-      const priceVal = parseFloat(price) || 0;
-      const qtyVal = parseFloat(qty) || 0;
+      const priceVal = cleanNumber(price);
+      const qtyVal = cleanNumber(qty);
       if (priceVal <= 0 || qtyVal <= 0) {
         setFormError("Price and Quantity must be greater than 0");
         return;
       }
       onAddAsset(selectedTab, {
-        date: formattedDate,
+        date: finalFormattedDate,
         group: trimmedGroup,
         name: trimmedName,
         price: priceVal,
@@ -191,15 +219,15 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
         <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200/50">
           {tabs.map((tab) => (
             <button
-              key={tab}
-              onClick={() => setSelectedTab(tab)}
+              key={tab.key}
+              onClick={() => setSelectedTab(tab.key)}
               className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
-                selectedTab === tab
+                selectedTab === tab.key
                   ? "bg-white text-indigo-600 shadow-xs"
                   : "text-slate-600 hover:text-slate-800"
               }`}
             >
-              {tab === "GoldSilver" ? "Gold & Silver" : tab}
+              {tab.label}
             </button>
           ))}
         </div>
@@ -262,13 +290,15 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
                       </td>
                     </tr>
                   ) : (
-                    displayItems.map((item) => (
+                    displayItems.map((item, idx) => (
                       <motion.tr
-                        key={item.id}
+                        key={item.id || `inv-${idx}`}
                         layout
                         className="bg-white border-b border-slate-100 hover:bg-slate-50/50 text-xs text-slate-600"
                       >
-                        <td className="py-3 px-4 font-mono text-slate-500 whitespace-nowrap">{item.date}</td>
+                        <td className="py-3 px-4 font-mono text-slate-700 whitespace-nowrap font-medium">
+                          {item.date}
+                        </td>
                         <td className="py-3 px-4">
                           <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200/50">
                             {item.group || "—"}
@@ -276,14 +306,16 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
                         </td>
                         <td className="py-3 px-4 font-medium text-slate-800">{item.name}</td>
                         {selectedTab !== "SIP" && (
-                          <td className="py-3 px-4 text-right font-mono">{formatCurrency(item.price)}</td>
+                          <td className="py-3 px-4 text-right font-mono">{formatCurrency(cleanNumber(item.price))}</td>
                         )}
                         {selectedTab !== "SIP" && (
-                          <td className="py-3 px-4 text-right font-mono">{item.qty}</td>
+                          <td className="py-3 px-4 text-right font-mono">{cleanNumber(item.qty)}</td>
                         )}
                         <td className="py-3 px-4 text-right font-mono text-slate-900 font-semibold">
                           {formatCurrency(
-                            selectedTab === "SIP" ? item.amount : Number(item.price) * Number(item.qty)
+                            selectedTab === "SIP"
+                              ? cleanNumber(item.amount)
+                              : cleanNumber(item.price) * cleanNumber(item.qty)
                           )}
                         </td>
                         <td className="py-3 px-4 text-center">
@@ -377,7 +409,7 @@ export const InvestmentModule: React.FC<InvestmentModuleProps> = ({
                   <input
                     type="text"
                     list="inv-name-suggestions"
-                    placeholder="e.g. Tata Motors, Parag Parikh Flexi Cap, Gold Bar"
+                    placeholder="e.g. Tata Motors, Parag Parikh, Gold ETF"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     required
