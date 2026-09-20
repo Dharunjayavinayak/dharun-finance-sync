@@ -26,7 +26,8 @@ import {
   Pie,
   Cell,
   AreaChart,
-  Area
+  Area,
+  LabelList
 } from 'recharts';
 
 type AssetCategory = 'Stocks' | 'SIP' | 'GoldSilver';
@@ -374,6 +375,55 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
   }, [investments, invTimeframe]);
 
   // -------------------------------------------------------------
+  // 3C. MONTHLY BREAKDOWN TABLE (Where monthly capital was invested)
+  // -------------------------------------------------------------
+  const monthlyBreakdownTableData = useMemo(() => {
+    // Collect all assets across categories and group/aggregate by asset name or group for the selected timeframe
+    const itemMap: Record<string, { name: string; amount: number }> = {};
+
+    // For simplicity, aggregate all items in the active timeframe or current window
+    let numMonths = 5;
+    if (invTimeframe === '1y') numMonths = 12;
+    if (invTimeframe === 'all') numMonths = 24;
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const thresholdDate = new Date(currentYear, currentMonth - numMonths + 1, 1);
+
+    const processItems = (items: any[]) => {
+      items.forEach((item: any) => {
+        const p = parseTxDate(item.date);
+        if (p) {
+          const itemDate = new Date(p.year, p.month, p.day);
+          if (invTimeframe === 'all' || itemDate >= thresholdDate) {
+            const name = item.name?.trim() || item.group?.trim() || 'Investment';
+            const qty = cleanNumber(item.qty);
+            const price = cleanNumber(item.price);
+            const amt = cleanNumber(item.amount) || (qty * price);
+            if (amt > 0) {
+              itemMap[name] = (itemMap[name] || 0) + amt;
+            }
+          }
+        }
+      });
+    };
+
+    processItems(investments?.Stocks || []);
+    processItems(investments?.SIP || []);
+    processItems(investments?.GoldSilver || []);
+
+    const list = Object.entries(itemMap).map(([name, amount]) => ({
+      name,
+      amount: Math.round(amount)
+    })).sort((a, b) => b.amount - a.amount);
+
+    const totalAmount = list.reduce((sum, curr) => sum + curr.amount, 0);
+
+    return { list, totalAmount };
+  }, [investments, invTimeframe]);
+
+  // -------------------------------------------------------------
   // 4. PORTFOLIO ALLOCATION PIE CHARTS
   // -------------------------------------------------------------
   const portfolioSummary = useMemo(() => {
@@ -402,7 +452,10 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
       { name: 'Stocks', value: Math.round(stocksVal) },
       { name: 'SIP / Mutual Funds', value: Math.round(sipVal) },
       { name: 'Gold & Silver', value: Math.round(goldVal) }
-    ].filter((item) => item.value > 0);
+    ].filter((item) => item.value > 0).map(item => ({
+      ...item,
+      percentage: totalPortfolio > 0 ? ((item.value / totalPortfolio) * 100).toFixed(1) + '%' : '0%'
+    }));
 
     const sectorMap: Record<string, number> = {};
     (investments?.Stocks || []).forEach((st: any) => {
@@ -413,10 +466,15 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
       sectorMap[groupName] = (sectorMap[groupName] || 0) + val;
     });
 
-    const stockSectorData = Object.keys(sectorMap).map((sec) => ({
-      name: sec,
-      value: Math.round(sectorMap[sec])
-    })).filter((item) => item.value > 0);
+    const totalStocksVal = stocksVal > 0 ? stocksVal : 1;
+    const stockSectorData = Object.keys(sectorMap).map((sec) => {
+      const val = Math.round(sectorMap[sec]);
+      return {
+        name: sec,
+        value: val,
+        percentage: ((val / totalStocksVal) * 100).toFixed(1) + '%'
+      };
+    }).filter((item) => item.value > 0);
 
     return { totalPortfolio, assetData, stockSectorData };
   }, [investments]);
@@ -655,7 +713,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
           <h2 className="text-lg font-bold text-slate-800">Investment Portfolio Analytics</h2>
         </div>
 
-        {/* Investment Graph Section with Arrow Navigation */}
+        {/* Investment Graph Section with Left Table & Right Graph (1 Row, 2 Columns) */}
         <div className="mb-10">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
             {/* Arrow Switcher for Graphs */}
@@ -708,36 +766,71 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
             </div>
           </div>
 
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              {activeInvGraph === 'cumulative' ? (
-                <AreaChart data={investmentTrendData}>
-                  <defs>
-                    <linearGradient id="invGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} />
-                  <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
-                  <Tooltip formatter={(val: number) => [formatCurrency(val), 'Cumulative Capital']} />
-                  <Area type="monotone" dataKey="invested" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#invGradient)" />
-                </AreaChart>
-              ) : (
-                <BarChart data={monthlyInvestmentData}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} />
-                  <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
-                  <Tooltip formatter={(val: number) => [formatCurrency(val), 'Monthly Invested']} />
-                  <Bar dataKey="invested" name="Monthly Invested" fill="#10b981" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              )}
-            </ResponsiveContainer>
+          {/* 1 Row, 2 Columns Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Left Side: Summary Table */}
+            <div className="lg:col-span-5 border border-slate-200 rounded-xl overflow-hidden bg-slate-50/50 flex flex-col h-72">
+              <div className="bg-slate-100 px-3.5 py-2.5 border-b border-slate-200 text-xs font-bold text-slate-700 flex justify-between">
+                <span>Invested In</span>
+                <span>Amount</span>
+              </div>
+              <div className="overflow-y-auto flex-1 divide-y divide-slate-100 bg-white">
+                {monthlyBreakdownTableData.list.length === 0 ? (
+                  <div className="h-full flex items-center justify-center p-6 text-xs text-slate-400">
+                    No investment records found.
+                  </div>
+                ) : (
+                  monthlyBreakdownTableData.list.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between px-3.5 py-2 text-xs hover:bg-slate-50">
+                      <span className="font-medium text-slate-800 truncate max-w-[180px]">{item.name}</span>
+                      <span className="font-mono font-bold text-emerald-600">{formatCurrency(item.amount)}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+              {/* Fixed Bottom Total Row */}
+              <div className="bg-slate-100 px-3.5 py-2.5 border-t border-slate-200 text-xs font-bold text-slate-800 flex justify-between">
+                <span>Total Invested</span>
+                <span className="font-mono text-emerald-700">{formatCurrency(monthlyBreakdownTableData.totalAmount)}</span>
+              </div>
+            </div>
+
+            {/* Right Side: Graph Window */}
+            <div className="lg:col-span-7 h-72 w-full bg-white border border-slate-200 rounded-xl p-4 shadow-2xs flex flex-col justify-center">
+              <ResponsiveContainer width="100%" height="100%">
+                {activeInvGraph === 'cumulative' ? (
+                  <AreaChart data={investmentTrendData}>
+                    <defs>
+                      <linearGradient id="invGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} />
+                    <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
+                    <Tooltip formatter={(val: number) => [formatCurrency(val), 'Cumulative Capital']} />
+                    <Area type="monotone" dataKey="invested" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#invGradient)">
+                      <LabelList dataKey="invested" position="top" formatter={(val: number) => val > 0 ? formatCurrency(val) : ''} style={{ fontSize: '10px', fill: '#047857', fontWeight: 600 }} />
+                    </Area>
+                  </AreaChart>
+                ) : (
+                  <BarChart data={monthlyInvestmentData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} />
+                    <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
+                    <Tooltip formatter={(val: number) => [formatCurrency(val), 'Monthly Invested']} />
+                    <Bar dataKey="invested" name="Monthly Invested" fill="#10b981" radius={[4, 4, 0, 0]}>
+                      <LabelList dataKey="invested" position="top" formatter={(val: number) => val > 0 ? formatCurrency(val) : ''} style={{ fontSize: '10px', fill: '#047857', fontWeight: 600 }} />
+                    </Bar>
+                  </BarChart>
+                )}
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
 
-        {/* Allocation Pie Charts */}
+        {/* Allocation Pie Charts (Percentage Inside, Name & Amount Outside) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10 pb-8 border-b border-slate-100">
           <div className="flex flex-col items-center">
             <span className="text-sm font-semibold text-slate-700 mb-4 self-start flex items-center gap-1.5">
@@ -749,13 +842,22 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={portfolioSummary.assetData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={4} dataKey="value">
+                    <Pie
+                      data={portfolioSummary.assetData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={80}
+                      paddingAngle={4}
+                      dataKey="value"
+                      label={({ name, value, percentage }) => `${name}: ${formatCurrency(value)} (${percentage})`}
+                      labelLine={true}
+                    >
                       {portfolioSummary.assetData.map((_, idx) => (
                         <Cell key={`asset-cell-${idx}`} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
                       ))}
                     </Pie>
                     <Tooltip formatter={(val: number) => [formatCurrency(val), 'Invested']} />
-                    <Legend />
                   </PieChart>
                 </ResponsiveContainer>
               )}
@@ -772,13 +874,22 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={portfolioSummary.stockSectorData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={4} dataKey="value">
+                    <Pie
+                      data={portfolioSummary.stockSectorData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={80}
+                      paddingAngle={4}
+                      dataKey="value"
+                      label={({ name, value, percentage }) => `${name}: ${formatCurrency(value)} (${percentage})`}
+                      labelLine={true}
+                    >
                       {portfolioSummary.stockSectorData.map((_, idx) => (
                         <Cell key={`sector-cell-${idx}`} fill={PIE_COLORS[(idx + 2) % PIE_COLORS.length]} />
                       ))}
                     </Pie>
                     <Tooltip formatter={(val: number) => [formatCurrency(val), 'Invested']} />
-                    <Legend />
                   </PieChart>
                 </ResponsiveContainer>
               )}
@@ -946,6 +1057,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                             Qty: {sec.totalQty}
                           </span>
                         </div>
+                        {/* Cement/Slate Colored Percentage Badge */}
                         <div className="w-16 text-right">
                           <span className="text-xs font-bold font-mono text-slate-700 bg-slate-200/70 border border-slate-300 px-2 py-0.5 rounded">
                             {sec.percentage.toFixed(1)}%
