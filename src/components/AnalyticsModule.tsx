@@ -30,6 +30,7 @@ import {
 } from 'recharts';
 
 type AssetCategory = 'Stocks' | 'SIP' | 'GoldSilver';
+type InvGraphType = 'cumulative' | 'monthly';
 
 interface AnalyticsProps {
   expenses: BankData;
@@ -41,6 +42,11 @@ const ASSET_TABS: { key: AssetCategory; label: string }[] = [
   { key: 'Stocks', label: 'Stocks' },
   { key: 'SIP', label: 'SIP / Mutual Funds' },
   { key: 'GoldSilver', label: 'Gold & Silver' }
+];
+
+const INV_GRAPHS: { key: InvGraphType; label: string }[] = [
+  { key: 'cumulative', label: 'Cumulative Invested Value' },
+  { key: 'monthly', label: 'Monthly Invested Amount' }
 ];
 
 const PIE_COLORS = [
@@ -62,14 +68,12 @@ function toDDMMYYYY(dateStr?: string): string {
   const parts = clean.split(/[-/]/);
 
   if (parts.length === 3) {
-    // Already DD-MM-YYYY
     if (parts[2].length === 4) {
       const day = parts[0].padStart(2, '0');
       const month = parts[1].padStart(2, '0');
       const year = parts[2];
       return `${day}-${month}-${year}`;
     }
-    // Convert YYYY-MM-DD to DD-MM-YYYY
     if (parts[0].length === 4) {
       const year = parts[0];
       const month = parts[1].padStart(2, '0');
@@ -89,9 +93,6 @@ function toDDMMYYYY(dateStr?: string): string {
   return dateStr;
 }
 
-/**
- * Extracts date tokens for filtering and chronologic comparisons
- */
 function parseTxDate(dateStr?: string): { year: number; month: number; day: number } | null {
   if (!dateStr || typeof dateStr !== 'string') return null;
   const clean = dateStr.trim().split('T')[0];
@@ -142,6 +143,8 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
   const [topLimit, setTopLimit] = useState<number>(5);
 
   const [invTimeframe, setInvTimeframe] = useState<'5m' | '1y' | 'all'>('5m');
+  const [invGraphIndex, setInvGraphIndex] = useState<number>(0);
+
   const [assetTabIndex, setAssetTabIndex] = useState<number>(0);
   const [expandedSectors, setExpandedSectors] = useState<Record<string, boolean>>({});
 
@@ -152,6 +155,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const activeAssetType = ASSET_TABS[assetTabIndex].key;
+  const activeInvGraph = INV_GRAPHS[invGraphIndex].key;
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -226,7 +230,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
   }, [expenses, bankIndex]);
 
   // -------------------------------------------------------------
-  // 2. TOP EXPENSES BREAKDOWN (Strict DD-MM-YYYY display)
+  // 2. TOP EXPENSES BREAKDOWN
   // -------------------------------------------------------------
   const topExpensesList = useMemo(() => {
     const allTx: { bank: string; date: string; category: string; reason: string; cost: number }[] = [];
@@ -305,6 +309,66 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
         invested: Math.round(cumulativeTotal)
       });
     }
+
+    return result;
+  }, [investments, invTimeframe]);
+
+  // -------------------------------------------------------------
+  // 3B. MONTHLY INVESTED AMOUNT (Incremental per Month)
+  // -------------------------------------------------------------
+  const monthlyInvestmentData = useMemo(() => {
+    let numMonths = 5;
+    if (invTimeframe === '1y') numMonths = 12;
+    if (invTimeframe === 'all') numMonths = 24;
+
+    const result: { month: string; invested: number }[] = [];
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    const targetMonths: { year: number; month: number; label: string }[] = [];
+    for (let i = numMonths - 1; i >= 0; i--) {
+      const d = new Date(currentYear, currentMonth - i, 1);
+      targetMonths.push({
+        year: d.getFullYear(),
+        month: d.getMonth(),
+        label: d.toLocaleString('en-US', { month: 'short', year: '2-digit' })
+      });
+    }
+
+    targetMonths.forEach((target) => {
+      let monthlyTotal = 0;
+
+      (investments?.Stocks || []).forEach((st: any) => {
+        const p = parseTxDate(st.date);
+        if (p && p.year === target.year && p.month === target.month) {
+          const qty = cleanNumber(st.qty);
+          const price = cleanNumber(st.price);
+          monthlyTotal += cleanNumber(st.amount) || (qty * price);
+        }
+      });
+
+      (investments?.SIP || []).forEach((sip: any) => {
+        const p = parseTxDate(sip.date);
+        if (p && p.year === target.year && p.month === target.month) {
+          monthlyTotal += cleanNumber(sip.amount);
+        }
+      });
+
+      (investments?.GoldSilver || []).forEach((gs: any) => {
+        const p = parseTxDate(gs.date);
+        if (p && p.year === target.year && p.month === target.month) {
+          const qty = cleanNumber(gs.qty);
+          const price = cleanNumber(gs.price);
+          monthlyTotal += cleanNumber(gs.amount) || (qty * price);
+        }
+      });
+
+      result.push({
+        month: target.label,
+        invested: Math.round(monthlyTotal)
+      });
+    });
 
     return result;
   }, [investments, invTimeframe]);
@@ -591,11 +655,31 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
           <h2 className="text-lg font-bold text-slate-800">Investment Portfolio Analytics</h2>
         </div>
 
-        {/* Cumulative Area Chart */}
+        {/* Investment Graph Section with Arrow Navigation */}
         <div className="mb-10">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-semibold text-slate-700">Cumulative Invested Value</span>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+            {/* Arrow Switcher for Graphs */}
+            <div className="flex items-center space-x-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+              <button
+                onClick={() => setInvGraphIndex((prev) => (prev === 0 ? INV_GRAPHS.length - 1 : prev - 1))}
+                className="p-1 hover:bg-slate-200 rounded text-slate-600 transition cursor-pointer"
+                title="Previous Graph"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span className="text-xs font-bold text-emerald-600 min-w-[180px] text-center">
+                {INV_GRAPHS[invGraphIndex].label}
+              </span>
+              <button
+                onClick={() => setInvGraphIndex((prev) => (prev === INV_GRAPHS.length - 1 ? 0 : prev + 1))}
+                className="p-1 hover:bg-slate-200 rounded text-slate-600 transition cursor-pointer"
+                title="Next Graph"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
 
+            {/* Timeframe Controls */}
             <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
               <button
                 onClick={() => setInvTimeframe('5m')}
@@ -626,19 +710,29 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
 
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={investmentTrendData}>
-                <defs>
-                  <linearGradient id="invGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} />
-                <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
-                <Tooltip formatter={(val: number) => [formatCurrency(val), 'Invested Capital']} />
-                <Area type="monotone" dataKey="invested" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#invGradient)" />
-              </AreaChart>
+              {activeInvGraph === 'cumulative' ? (
+                <AreaChart data={investmentTrendData}>
+                  <defs>
+                    <linearGradient id="invGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} />
+                  <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
+                  <Tooltip formatter={(val: number) => [formatCurrency(val), 'Cumulative Capital']} />
+                  <Area type="monotone" dataKey="invested" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#invGradient)" />
+                </AreaChart>
+              ) : (
+                <BarChart data={monthlyInvestmentData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} />
+                  <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
+                  <Tooltip formatter={(val: number) => [formatCurrency(val), 'Monthly Invested']} />
+                  <Bar dataKey="invested" name="Monthly Invested" fill="#10b981" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              )}
             </ResponsiveContainer>
           </div>
         </div>
@@ -693,7 +787,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
         </div>
 
         {/* ========================================================= */}
-        {/* 3. SECTOR-WISE BREAKDOWN (CEMENT COLOR & GROUPED ASSETS)  */}
+        {/* 3. SECTOR-WISE BREAKDOWN & GROUPED ASSETS                 */}
         {/* ========================================================= */}
         <div>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
@@ -852,7 +946,6 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                             Qty: {sec.totalQty}
                           </span>
                         </div>
-                        {/* Cement/Slate Colored Percentage Badge */}
                         <div className="w-16 text-right">
                           <span className="text-xs font-bold font-mono text-slate-700 bg-slate-200/70 border border-slate-300 px-2 py-0.5 rounded">
                             {sec.percentage.toFixed(1)}%
