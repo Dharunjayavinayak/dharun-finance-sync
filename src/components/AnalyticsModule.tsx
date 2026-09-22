@@ -383,7 +383,6 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
   // -------------------------------------------------------------
   const dynamicTableData = useMemo(() => {
     if (activeInvGraph === 'cumulative') {
-      // Cumulative mode: list monthly-wise invested cumulative amounts for the active window
       const list = investmentTrendData.map((item) => ({
         name: item.month,
         amount: item.invested
@@ -391,7 +390,6 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
       const totalAmount = list.length > 0 ? list[list.length - 1].amount : 0;
       return { headers: ['Month', 'Cumulative Invested'], list, totalAmount };
     } else {
-      // Monthly mode: filtered by selected Year and Month dropdowns
       const itemMap: Record<string, number> = {};
 
       const processItems = (items: any[]) => {
@@ -613,8 +611,8 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                   <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
                   <Tooltip formatter={(value: number) => [formatCurrency(value), '']} />
                   <Legend />
-                  <Bar dataKey="credit" name="Credit / Inflow (+)" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="cost" name="Cost / Expense (-)" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="credit" name="Credit / Inflow (+)" fill="#10b981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                  <Bar dataKey="cost" name="Cost / Expense (-)" fill="#ef4444" radius={[4, 4, 0, 0]} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -776,7 +774,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                     <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} />
                     <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
                     <Tooltip formatter={(val: number) => [formatCurrency(val), 'Cumulative Capital']} />
-                    <Area type="monotone" dataKey="invested" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#invGradient)">
+                    <Area type="monotone" dataKey="invested" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#invGradient)" isAnimationActive={false}>
                       <LabelList dataKey="invested" position="top" formatter={(val: number) => val > 0 ? formatCurrency(val) : ''} style={{ fontSize: '10px', fill: '#047857', fontWeight: 600 }} />
                     </Area>
                   </AreaChart>
@@ -786,7 +784,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                     <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} />
                     <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
                     <Tooltip formatter={(val: number) => [formatCurrency(val), 'Monthly Invested']} />
-                    <Bar dataKey="invested" name="Monthly Invested" fill="#10b981" radius={[4, 4, 0, 0]}>
+                    <Bar dataKey="invested" name="Monthly Invested" fill="#10b981" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                       <LabelList dataKey="invested" position="top" formatter={(val: number) => val > 0 ? formatCurrency(val) : ''} style={{ fontSize: '10px', fill: '#047857', fontWeight: 600 }} />
                     </Bar>
                   </BarChart>
@@ -852,7 +850,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
           </div>
         </div>
 
-        {/* Allocation Pie Charts (Cleaned up: Percentage inside/marked, Key & Amount below via Legend) */}
+        {/* Allocation Pie Charts (Clean labels, small percentage text) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10 pb-8 border-b border-slate-100">
           <div className="flex flex-col items-center">
             <span className="text-sm font-semibold text-slate-700 mb-4 self-start flex items-center gap-1.5">
@@ -872,7 +870,9 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                       outerRadius={80}
                       paddingAngle={4}
                       dataKey="value"
-                      label={({ name, percent }) => `${(percent * 100).toFixed(1)}%`}
+                      isAnimationActive={false}
+                      label={({ percent }) => `${(percent * 100).toFixed(0)}%`}
+                      labelLine={false}
                     >
                       {portfolioSummary.assetData.map((_, idx) => (
                         <Cell key={`asset-cell-${idx}`} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
@@ -909,7 +909,9 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                       outerRadius={80}
                       paddingAngle={4}
                       dataKey="value"
-                      label={({ percent }) => `${(percent * 100).toFixed(1)}%`}
+                      isAnimationActive={false}
+                      label={({ percent }) => `${(percent * 100).toFixed(0)}%`}
+                      labelLine={false}
                     >
                       {portfolioSummary.stockSectorData.map((_, idx) => (
                         <Cell key={`sector-cell-${idx}`} fill={PIE_COLORS[(idx + 2) % PIE_COLORS.length]} />
