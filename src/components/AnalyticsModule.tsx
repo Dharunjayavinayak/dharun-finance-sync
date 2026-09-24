@@ -850,7 +850,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
           </div>
         </div>
 
-        {/* Allocation Pie Charts (Clean labels, small percentage text) */}
+        {/* Allocation Pie Charts (Clean, small readable percentage labels inside/outside slices) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10 pb-8 border-b border-slate-100">
           <div className="flex flex-col items-center">
             <span className="text-sm font-semibold text-slate-700 mb-4 self-start flex items-center gap-1.5">
@@ -871,7 +871,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                       paddingAngle={4}
                       dataKey="value"
                       isAnimationActive={false}
-                      label={({ percent }) => `${(percent * 100).toFixed(0)}%`}
+                      label={({ percent }) => percent > 0.05 ? `${(percent * 100).toFixed(0)}%` : ''}
                       labelLine={false}
                     >
                       {portfolioSummary.assetData.map((_, idx) => (
@@ -910,7 +910,7 @@ export function AnalyticsModule({ expenses, investments }: AnalyticsProps) {
                       paddingAngle={4}
                       dataKey="value"
                       isAnimationActive={false}
-                      label={({ percent }) => `${(percent * 100).toFixed(0)}%`}
+                      label={({ percent }) => percent > 0.04 ? `${(percent * 100).toFixed(0)}%` : ''}
                       labelLine={false}
                     >
                       {portfolioSummary.stockSectorData.map((_, idx) => (
