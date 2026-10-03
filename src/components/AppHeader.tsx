@@ -36,7 +36,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   };
 
   return (
-    <header className="bg-white border-b border-slate-200 px-6 py-4 mb-6 shadow-xs" id="app-header-container">
+    <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-4 mb-6 shadow-xs" id="app-header-container">
       {/* Top row: Brand & Global Sync Time */}
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-col md:flex-row md:items-center gap-4">
@@ -55,7 +55,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         </div>
 
         {/* Sync Now & Config Drawer Toggle Buttons */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <div className="text-left md:text-right">
             <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Global Sync Time</p>
             <p className="text-xs font-mono text-slate-600" id="global-sync-time">
@@ -69,7 +69,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               setShowConfig(!showConfig);
               setInputValue(appsScriptUrl);
             }}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+            className="flex items-center space-x-1.5 px-2.5 sm:px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-xs font-semibold transition-all cursor-pointer"
           >
             <Link size={14} className="text-slate-400" />
             <span>Endpoint Settings</span>
@@ -81,7 +81,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             onClick={onSync}
             disabled={syncStatus === "syncing"}
             whileTap={{ scale: 0.97 }}
-            className={`flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm cursor-pointer ${
+            className={`flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-colors shadow-sm cursor-pointer ${
               syncStatus === "syncing" ? "opacity-75" : ""
             }`}
           >

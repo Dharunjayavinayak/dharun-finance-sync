@@ -230,13 +230,15 @@ export default function App() {
             throw new Error(`POST action failed: ${response.statusText}`);
           }
 
-          await response.json();
+          const result = await response.json();
+          if (result.status !== "success") {
+            throw new Error(result.message || result.error || "The server could not save this change.");
+          }
           queueRef.current.shift();
 
           if (queueRef.current.length === 0) {
             setLiveToast({ type: "success", message: "Transaction added successfully!" });
             setTimeout(() => setLiveToast(null), 3500);
-            await triggerSync(scriptUrl);
           }
         } catch (err: any) {
           queueRef.current.shift();
@@ -366,7 +368,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-50/70 text-slate-800 font-sans antialiased relative" id="main-scroller">
       {/* Live Event Notification Banner */}
       {liveToast && (
-        <div className="fixed bottom-5 right-5 z-50 transition-all duration-200">
+        <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 right-4 sm:left-auto sm:right-5 z-50 transition-all duration-200">
           <div className={`flex items-center gap-2.5 px-4 py-3 rounded-lg shadow-lg border text-xs font-semibold ${
             liveToast.type === "progress"
               ? "bg-slate-900 text-white border-slate-700"
@@ -382,7 +384,7 @@ export default function App() {
         </div>
       )}
 
-      <div className="max-w-7xl mx-auto px-4 py-8 md:px-6">
+      <div className="max-w-7xl mx-auto px-3 py-5 sm:px-4 sm:py-8 md:px-6">
         <AppHeader
           globalSyncTime={state.globalSyncTime}
           appsScriptUrl={scriptUrl}
@@ -395,11 +397,11 @@ export default function App() {
         <DashboardStats expenses={state.expenses} investments={state.investments} />
 
         <div className="flex justify-center mb-8" id="navigation-bar">
-          <div className="bg-slate-100 p-1 rounded-lg inline-flex items-center space-x-1 shadow-xs border border-slate-200/50">
+          <div className="bg-slate-100 p-1 rounded-lg flex flex-col w-full sm:w-auto sm:flex-row items-stretch sm:items-center gap-1 shadow-xs border border-slate-200/50">
             <button
               id="nav-expenses-btn"
               onClick={() => setActiveModule("expenses")}
-              className={`flex items-center space-x-2 px-5 py-2 rounded-md text-sm font-semibold transition-all cursor-pointer ${
+              className={`flex items-center justify-center gap-2 w-full sm:w-auto px-3 sm:px-5 py-2.5 sm:py-2 rounded-md text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
                 activeModule === "expenses" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600 hover:text-slate-800"
               }`}
             >
@@ -409,7 +411,7 @@ export default function App() {
             <button
               id="nav-portfolio-btn"
               onClick={() => setActiveModule("portfolio")}
-              className={`flex items-center space-x-2 px-5 py-2 rounded-md text-sm font-semibold transition-all cursor-pointer ${
+              className={`flex items-center justify-center gap-2 w-full sm:w-auto px-3 sm:px-5 py-2.5 sm:py-2 rounded-md text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
                 activeModule === "portfolio" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600 hover:text-slate-800"
               }`}
             >
@@ -419,7 +421,7 @@ export default function App() {
             <button
               id="nav-analytics-btn"
               onClick={() => setActiveModule("analytics")}
-              className={`flex items-center space-x-2 px-5 py-2 rounded-md text-sm font-semibold transition-all cursor-pointer ${
+              className={`flex items-center justify-center gap-2 w-full sm:w-auto px-3 sm:px-5 py-2.5 sm:py-2 rounded-md text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
                 activeModule === "analytics" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600 hover:text-slate-800"
               }`}
             >

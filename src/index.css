@@ -7,6 +7,15 @@
   --font-display: "Space Grotesk", sans-serif;
 }
 
+/* Prevent iOS Safari from zooming the page when a small form field is focused. */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 /* Custom Scrollbar styling for a premium, non-obtrusive look in financial tables */
 ::-webkit-scrollbar {
   width: 6px;
