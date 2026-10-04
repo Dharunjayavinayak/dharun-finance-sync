@@ -43,6 +43,7 @@ export default function App() {
   });
 
   const [activeModule, setActiveModule] = useState<"expenses" | "portfolio" | "analytics">("expenses");
+
   const [scriptUrl, setScriptUrl] = useState<string>(() => {
     const savedUrl = localStorage.getItem("finsync_script_url");
     if (savedUrl && savedUrl !== "YOUR_DEPLOYED_WEB_APP_URL") {
@@ -64,6 +65,12 @@ export default function App() {
   const queueRef = useRef<QueueItem[]>([]);
   const isProcessingRef = useRef<boolean>(false);
 
+  // Prevent multiple GET sync requests from running at the same time.
+  const syncInFlightRef = useRef<boolean>(false);
+
+  // Abort a slow/stuck GET request.
+  const syncAbortControllerRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     localStorage.setItem("finsync_app_state", JSON.stringify(state));
   }, [state]);
@@ -74,33 +81,76 @@ export default function App() {
 
   const handleUrlChange = (newUrl: string) => {
     setScriptUrl(newUrl);
+
     if (newUrl && newUrl !== "YOUR_DEPLOYED_WEB_APP_URL") {
+      // Start synchronization in the background.
       triggerSync(newUrl);
     }
   };
 
+  // Initial synchronization is deliberately non-blocking.
+  // Cached localStorage data is already rendered by the initial state above.
   useEffect(() => {
-    const isConfigured = scriptUrl && scriptUrl !== "YOUR_DEPLOYED_WEB_APP_URL" && scriptUrl.trim() !== "";
+    const isConfigured =
+      scriptUrl &&
+      scriptUrl !== "YOUR_DEPLOYED_WEB_APP_URL" &&
+      scriptUrl.trim() !== "";
+
     if (isConfigured) {
-      triggerSync(scriptUrl);
+      // Do not block the initial page render.
+      void triggerSync(scriptUrl);
     }
   }, []);
 
-  const triggerSync = async (targetUrl = scriptUrl) => {
-    if (!targetUrl || targetUrl === "YOUR_DEPLOYED_WEB_APP_URL" || targetUrl.trim() === "") {
+  const triggerSync = async (targetUrl = scriptUrl): Promise<void> => {
+    if (
+      !targetUrl ||
+      targetUrl === "YOUR_DEPLOYED_WEB_APP_URL" ||
+      targetUrl.trim() === ""
+    ) {
       setSyncStatus("error");
-      setSyncError("Apps Script URL is not configured. Go to 'Endpoint Settings' to enter your URL.");
+      setSyncError(
+        "Apps Script URL is not configured. Go to 'Endpoint Settings' to enter your URL."
+      );
       return;
     }
+
+    // Do not start another GET request while one is already running.
+    if (syncInFlightRef.current) {
+      return;
+    }
+
+    syncInFlightRef.current = true;
+
+    // Abort any previous controller just in case.
+    if (syncAbortControllerRef.current) {
+      syncAbortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    syncAbortControllerRef.current = controller;
+
+    // Prevent a slow mobile/network request from hanging indefinitely.
+    const timeoutId = window.setTimeout(() => {
+      controller.abort();
+    }, 15000);
 
     setSyncStatus("syncing");
     setSyncError(null);
 
     try {
-      const response = await fetch(targetUrl);
+      const response = await fetch(targetUrl, {
+        method: "GET",
+        cache: "no-store",
+        signal: controller.signal,
+      });
+
       if (!response.ok) {
-        throw new Error(`Server returned HTTP ${response.status}:${response.statusText}`);
+        throw new Error(
+          `Server returned HTTP ${response.status}:${response.statusText}`
+        );
       }
+
       const data = await response.json();
 
       const nowStr = new Date().toLocaleString("en-IN", {
@@ -119,17 +169,23 @@ export default function App() {
         // Process expenses sheets
         if (data.expenses) {
           const fetchedExpenses = data.expenses;
+
           (["HDFC", "IOB", "Canara"] as BankName[]).forEach((bank) => {
             if (Array.isArray(fetchedExpenses[bank])) {
-              nextState.expenses[bank] = fetchedExpenses[bank].map((tx: any, idx: number) => ({
-                id: tx.id || `${bank.toLowerCase()}-fetched-${idx}`,
-                date: tx.date || new Date().toISOString().split("T")[0],
-                category: tx.category || "General",
-                reason: tx.reason || "Unspecified record",
-                credit: cleanNumber(tx.credit),
-                cost: cleanNumber(tx.cost),
-                balance: cleanNumber(tx.balance),
-              }));
+              nextState.expenses[bank] = fetchedExpenses[bank].map(
+                (tx: any, idx: number) => ({
+                  id: tx.id || `${bank.toLowerCase()}-fetched-${idx}`,
+                  date:
+                    tx.date ||
+                    new Date().toISOString().split("T")[0],
+                  category: tx.category || "General",
+                  reason: tx.reason || "Unspecified record",
+                  credit: cleanNumber(tx.credit),
+                  cost: cleanNumber(tx.cost),
+                  balance: cleanNumber(tx.balance),
+                })
+              );
+
               nextState.bankSyncTimes[bank] = nowStr;
             }
           });
@@ -141,44 +197,63 @@ export default function App() {
 
           // Stocks
           if (Array.isArray(fetchedInv.Stocks)) {
-            nextState.investments.Stocks = fetchedInv.Stocks.map((st: any, idx: number) => ({
-              id: st.id || `stock-fetched-${idx}`,
-              date: st.date || new Date().toISOString().split("T")[0],
-              group: st.group || "General",
-              name: st.name || "STOCK",
-              qty: cleanNumber(st.qty),
-              price: cleanNumber(st.price),
-              amount: cleanNumber(st.amount),
-              currentPrice: cleanNumber(st.currentPrice || st.price),
-            }));
+            nextState.investments.Stocks = fetchedInv.Stocks.map(
+              (st: any, idx: number) => ({
+                id: st.id || `stock-fetched-${idx}`,
+                date:
+                  st.date ||
+                  new Date().toISOString().split("T")[0],
+                group: st.group || "General",
+                name: st.name || "STOCK",
+                qty: cleanNumber(st.qty),
+                price: cleanNumber(st.price),
+                amount: cleanNumber(st.amount),
+                currentPrice: cleanNumber(st.currentPrice || st.price),
+              })
+            );
+
             nextState.assetSyncTimes.Stocks = nowStr;
           }
 
           // SIP
           if (Array.isArray(fetchedInv.SIP)) {
-            nextState.investments.SIP = fetchedInv.SIP.map((sip: any, idx: number) => ({
-              id: sip.id || `sip-fetched-${idx}`,
-              date: sip.date || new Date().toISOString().split("T")[0],
-              group: sip.group || "Mutual Fund",
-              name: sip.name || "Mutual Fund",
-              amount: cleanNumber(sip.amount),
-              currentValue: cleanNumber(sip.currentValue || sip.amount),
-            }));
+            nextState.investments.SIP = fetchedInv.SIP.map(
+              (sip: any, idx: number) => ({
+                id: sip.id || `sip-fetched-${idx}`,
+                date:
+                  sip.date ||
+                  new Date().toISOString().split("T")[0],
+                group: sip.group || "Mutual Fund",
+                name: sip.name || "Mutual Fund",
+                amount: cleanNumber(sip.amount),
+                currentValue: cleanNumber(
+                  sip.currentValue || sip.amount
+                ),
+              })
+            );
+
             nextState.assetSyncTimes.SIP = nowStr;
           }
 
           // GoldSilver
           if (Array.isArray(fetchedInv.GoldSilver)) {
-            nextState.investments.GoldSilver = fetchedInv.GoldSilver.map((gs: any, idx: number) => ({
-              id: gs.id || `gs-fetched-${idx}`,
-              date: gs.date || new Date().toISOString().split("T")[0],
-              group: gs.group || "Metal",
-              name: gs.name || "Metal Asset",
-              qty: cleanNumber(gs.qty),
-              price: cleanNumber(gs.price),
-              amount: cleanNumber(gs.amount),
-              currentPrice: cleanNumber(gs.currentPrice || gs.price),
-            }));
+            nextState.investments.GoldSilver = fetchedInv.GoldSilver.map(
+              (gs: any, idx: number) => ({
+                id: gs.id || `gs-fetched-${idx}`,
+                date:
+                  gs.date ||
+                  new Date().toISOString().split("T")[0],
+                group: gs.group || "Metal",
+                name: gs.name || "Metal Asset",
+                qty: cleanNumber(gs.qty),
+                price: cleanNumber(gs.price),
+                amount: cleanNumber(gs.amount),
+                currentPrice: cleanNumber(
+                  gs.currentPrice || gs.price
+                ),
+              })
+            );
+
             nextState.assetSyncTimes.GoldSilver = nowStr;
           }
         }
@@ -188,20 +263,37 @@ export default function App() {
       });
 
       setSyncStatus("success");
-      setTimeout(() => {
+
+      window.setTimeout(() => {
         setSyncStatus("idle");
       }, 5000);
-
     } catch (error: any) {
       console.error("Fetch synchronization failed", error);
+
+      if (error?.name === "AbortError") {
+        setSyncError(
+          "Sync timed out. Showing the last saved data."
+        );
+      } else {
+        setSyncError(
+          error?.message ||
+            "Unable to synchronize. Showing the last saved data."
+        );
+      }
+
       setSyncStatus("error");
-      setSyncError(error.message || "Network error.");
+    } finally {
+      window.clearTimeout(timeoutId);
+
+      syncInFlightRef.current = false;
+      syncAbortControllerRef.current = null;
     }
   };
 
   // Process the request queue sequentially
   const processQueue = async () => {
     if (isProcessingRef.current || queueRef.current.length === 0) return;
+
     isProcessingRef.current = true;
 
     while (queueRef.current.length > 0) {
@@ -210,12 +302,17 @@ export default function App() {
 
       setLiveToast({
         type: "progress",
-        message: remainingCount > 1 
-          ? `Adding transaction (${remainingCount} in queue)...` 
-          : `${currentTask.label} in progress...`
+        message:
+          remainingCount > 1
+            ? `Adding transaction (${remainingCount} in queue)...`
+            : `${currentTask.label} in progress...`,
       });
 
-      const isConfigured = scriptUrl && scriptUrl !== "YOUR_DEPLOYED_WEB_APP_URL" && scriptUrl.trim() !== "";
+      const isConfigured =
+        scriptUrl &&
+        scriptUrl !== "YOUR_DEPLOYED_WEB_APP_URL" &&
+        scriptUrl.trim() !== "";
+
       if (isConfigured) {
         try {
           const response = await fetch(scriptUrl, {
@@ -227,27 +324,47 @@ export default function App() {
           });
 
           if (!response.ok) {
-            throw new Error(`POST action failed: ${response.statusText}`);
+            throw new Error(
+              `POST action failed: ${response.statusText}`
+            );
           }
 
           await response.json();
+
           queueRef.current.shift();
 
           if (queueRef.current.length === 0) {
-            setLiveToast({ type: "success", message: "Transaction added successfully!" });
+            setLiveToast({
+              type: "success",
+              message: "Transaction added successfully!",
+            });
+
             setTimeout(() => setLiveToast(null), 3500);
-            await triggerSync(scriptUrl);
+
+            // Do not force a full GET synchronization here.
+            // The UI has already been updated optimistically.
           }
         } catch (err: any) {
           queueRef.current.shift();
+
           console.error("Action API synchronization failed", err);
-          setLiveToast({ type: "error", message: `Action failed: ${err.message}` });
+
+          setLiveToast({
+            type: "error",
+            message: `Action failed: ${err.message}`,
+          });
+
           setTimeout(() => setLiveToast(null), 4000);
         }
       } else {
         queueRef.current.shift();
+
         if (queueRef.current.length === 0) {
-          setLiveToast({ type: "success", message: "Saved locally." });
+          setLiveToast({
+            type: "success",
+            message: "Saved locally.",
+          });
+
           setTimeout(() => setLiveToast(null), 3000);
         }
       }
@@ -262,65 +379,111 @@ export default function App() {
       payload,
       label,
     });
+
     processQueue();
   };
 
-  const handleAddTransaction = (bank: BankName, tx: Omit<Transaction, "id">) => {
+  const handleAddTransaction = (
+    bank: BankName,
+    tx: Omit<Transaction, "id">
+  ) => {
     const currentList = state.expenses[bank] || [];
-    const prevBalance = currentList.length > 0 ? (currentList[currentList.length - 1].balance || 0) : 0;
-    const computedBalance = prevBalance + (cleanNumber(tx.credit) || 0) - (cleanNumber(tx.cost) || 0);
+
+    const prevBalance =
+      currentList.length > 0
+        ? currentList[currentList.length - 1].balance || 0
+        : 0;
+
+    const computedBalance =
+      prevBalance +
+      (cleanNumber(tx.credit) || 0) -
+      (cleanNumber(tx.cost) || 0);
 
     const newTx: Transaction = {
       ...tx,
-      id: `${bank.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+      id: `${bank.toLowerCase()}-${Date.now()}-${Math.random()
+        .toString(36)
+        .substring(2, 5)}`,
       balance: computedBalance,
     };
 
     setState((prev) => {
       const updatedList = [...prev.expenses[bank], newTx];
+
       return {
         ...prev,
-        expenses: { ...prev.expenses, [bank]: updatedList },
+        expenses: {
+          ...prev.expenses,
+          [bank]: updatedList,
+        },
       };
     });
 
-    enqueueAction({
-      action: "add",
-      sheetName: bank,
-      date: newTx.date,
-      category: newTx.category,
-      reason: newTx.reason,
-      credit: newTx.credit,
-      cost: newTx.cost,
-    }, "Adding transaction");
+    enqueueAction(
+      {
+        action: "add",
+        sheetName: bank,
+        date: newTx.date,
+        category: newTx.category,
+        reason: newTx.reason,
+        credit: newTx.credit,
+        cost: newTx.cost,
+      },
+      "Adding transaction"
+    );
   };
 
-  const handleDeleteTransaction = (bank: BankName, tx: Transaction) => {
+  const handleDeleteTransaction = (
+    bank: BankName,
+    tx: Transaction
+  ) => {
     setState((prev) => {
-      const filtered = prev.expenses[bank].filter((item) => item.id !== tx.id);
+      const filtered = prev.expenses[bank].filter(
+        (item) => item.id !== tx.id
+      );
+
       return {
         ...prev,
-        expenses: { ...prev.expenses, [bank]: filtered },
+        expenses: {
+          ...prev.expenses,
+          [bank]: filtered,
+        },
       };
     });
 
-    enqueueAction({
-      action: "delete",
-      sheetName: bank,
-      date: tx.date,
-      reason: tx.reason,
-    }, "Deleting transaction");
+    enqueueAction(
+      {
+        action: "delete",
+        sheetName: bank,
+        date: tx.date,
+        reason: tx.reason,
+      },
+      "Deleting transaction"
+    );
   };
 
-  const handleAddAsset = (assetClass: AssetClass, asset: any) => {
-    const newId = `${assetClass.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`;
-    const newAsset = { ...asset, id: newId };
+  const handleAddAsset = (
+    assetClass: AssetClass,
+    asset: any
+  ) => {
+    const newId = `${assetClass.toLowerCase()}-${Date.now()}-${Math.random()
+      .toString(36)
+      .substring(2, 5)}`;
+
+    const newAsset = {
+      ...asset,
+      id: newId,
+    };
 
     setState((prev) => {
       const list = prev.investments[assetClass] || [];
+
       return {
         ...prev,
-        investments: { ...prev.investments, [assetClass]: [...list, newAsset] },
+        investments: {
+          ...prev.investments,
+          [assetClass]: [...list, newAsset],
+        },
       };
     });
 
@@ -344,39 +507,70 @@ export default function App() {
     enqueueAction(addPayload, "Adding asset");
   };
 
-  const handleDeleteAsset = (assetClass: AssetClass, asset: { date: string; name: string }) => {
+  const handleDeleteAsset = (
+    assetClass: AssetClass,
+    asset: { date: string; name: string }
+  ) => {
     setState((prev) => {
       const list = prev.investments[assetClass] || [];
-      const filtered = list.filter((item: any) => !(item.date === asset.date && item.name === asset.name));
+
+      const filtered = list.filter(
+        (item: any) =>
+          !(item.date === asset.date && item.name === asset.name)
+      );
+
       return {
         ...prev,
-        investments: { ...prev.investments, [assetClass]: filtered },
+        investments: {
+          ...prev.investments,
+          [assetClass]: filtered,
+        },
       };
     });
 
-    enqueueAction({
-      action: "delete",
-      sheetName: assetClass,
-      date: asset.date,
-      name: asset.name,
-    }, "Deleting asset");
+    enqueueAction(
+      {
+        action: "delete",
+        sheetName: assetClass,
+        date: asset.date,
+        name: asset.name,
+      },
+      "Deleting asset"
+    );
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/70 text-slate-800 font-sans antialiased relative" id="main-scroller">
+    <div
+      className="min-h-screen bg-slate-50/70 text-slate-800 font-sans antialiased relative"
+      id="main-scroller"
+    >
       {/* Live Event Notification Banner */}
       {liveToast && (
         <div className="fixed bottom-5 right-5 z-50 transition-all duration-200">
-          <div className={`flex items-center gap-2.5 px-4 py-3 rounded-lg shadow-lg border text-xs font-semibold ${
-            liveToast.type === "progress"
-              ? "bg-slate-900 text-white border-slate-700"
-              : liveToast.type === "success"
-              ? "bg-emerald-600 text-white border-emerald-500"
-              : "bg-rose-600 text-white border-rose-500"
-          }`}>
-            {liveToast.type === "progress" && <Loader2 size={15} className="animate-spin text-indigo-400" />}
-            {liveToast.type === "success" && <CheckCircle2 size={15} className="text-white" />}
-            {liveToast.type === "error" && <AlertCircle size={15} className="text-white" />}
+          <div
+            className={`flex items-center gap-2.5 px-4 py-3 rounded-lg shadow-lg border text-xs font-semibold ${
+              liveToast.type === "progress"
+                ? "bg-slate-900 text-white border-slate-700"
+                : liveToast.type === "success"
+                ? "bg-emerald-600 text-white border-emerald-500"
+                : "bg-rose-600 text-white border-rose-500"
+            }`}
+          >
+            {liveToast.type === "progress" && (
+              <Loader2
+                size={15}
+                className="animate-spin text-indigo-400"
+              />
+            )}
+
+            {liveToast.type === "success" && (
+              <CheckCircle2 size={15} className="text-white" />
+            )}
+
+            {liveToast.type === "error" && (
+              <AlertCircle size={15} className="text-white" />
+            )}
+
             <span>{liveToast.message}</span>
           </div>
         </div>
@@ -392,35 +586,49 @@ export default function App() {
           syncError={syncError}
         />
 
-        <DashboardStats expenses={state.expenses} investments={state.investments} />
+        <DashboardStats
+          expenses={state.expenses}
+          investments={state.investments}
+        />
 
-        <div className="flex justify-center mb-8" id="navigation-bar">
+        <div
+          className="flex justify-center mb-8"
+          id="navigation-bar"
+        >
           <div className="bg-slate-100 p-1 rounded-lg inline-flex items-center space-x-1 shadow-xs border border-slate-200/50">
             <button
               id="nav-expenses-btn"
               onClick={() => setActiveModule("expenses")}
               className={`flex items-center space-x-2 px-5 py-2 rounded-md text-sm font-semibold transition-all cursor-pointer ${
-                activeModule === "expenses" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600 hover:text-slate-800"
+                activeModule === "expenses"
+                  ? "bg-white text-indigo-600 shadow-xs"
+                  : "text-slate-600 hover:text-slate-800"
               }`}
             >
               <Wallet size={15} />
               <span>Manage Expenses</span>
             </button>
+
             <button
               id="nav-portfolio-btn"
               onClick={() => setActiveModule("portfolio")}
               className={`flex items-center space-x-2 px-5 py-2 rounded-md text-sm font-semibold transition-all cursor-pointer ${
-                activeModule === "portfolio" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600 hover:text-slate-800"
+                activeModule === "portfolio"
+                  ? "bg-white text-indigo-600 shadow-xs"
+                  : "text-slate-600 hover:text-slate-800"
               }`}
             >
               <LineChart size={15} />
               <span>View Investment Portfolio</span>
             </button>
+
             <button
               id="nav-analytics-btn"
               onClick={() => setActiveModule("analytics")}
               className={`flex items-center space-x-2 px-5 py-2 rounded-md text-sm font-semibold transition-all cursor-pointer ${
-                activeModule === "analytics" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-600 hover:text-slate-800"
+                activeModule === "analytics"
+                  ? "bg-white text-indigo-600 shadow-xs"
+                  : "text-slate-600 hover:text-slate-800"
               }`}
             >
               <BarChart3 size={15} />
@@ -429,7 +637,10 @@ export default function App() {
           </div>
         </div>
 
-        <main className="transition-all duration-300" id="primary-view-container">
+        <main
+          className="transition-all duration-300"
+          id="primary-view-container"
+        >
           {activeModule === "expenses" && (
             <ExpenseModule
               expenses={state.expenses}
